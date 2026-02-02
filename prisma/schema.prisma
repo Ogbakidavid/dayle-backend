@@ -1,0 +1,456 @@
+// Dayle Backend Prisma Schema
+// Generated: 2026-01-29
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS (matching lib/domain/enums.js)
+// ============================================================================
+
+enum VaultStatus {
+  DRAFT
+  AWAITING_FUNDING
+  INVITED
+  FUNDED_UNASSIGNED
+  FUNDED_ASSIGNED
+  ACTIVE
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+  PAUSED
+}
+
+enum MilestoneStatus {
+  PENDING
+  SUBMITTED
+  AWAITING_APPROVAL
+  VERIFIED
+  REVISION_REQUESTED
+  REJECTED
+  DISPUTED
+}
+
+enum VerificationResult {
+  PASS
+  FAIL
+  FLAGGED
+  HUMAN_REVIEW
+}
+
+enum MilestoneReviewOutcome {
+  APPROVE
+  REQUEST_CHANGES
+  REJECT
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  NEEDS_INFO
+  RESOLVED
+  REJECTED
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum UserRole {
+  NONE
+  CLIENT
+  FREELANCER
+  ADMIN
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING_APPROVAL
+  SUSPENDED
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum LedgerEntryType {
+  DEPOSIT
+  LOCK
+  RELEASE
+  REFUND
+  WITHDRAW
+  FEE
+}
+
+enum DisputeType {
+  VERIFICATION_ERROR
+  REQUIREMENT_MISMATCH
+  SCOPE_CHANGE
+  BAD_FAITH
+  FRAUD
+  PROCESS_BREACH
+  SECURITY
+}
+
+enum EvidenceType {
+  CLARIFICATION_REQUEST
+  REQUIREMENT_CONFIRMATION
+  FILE_COMMENT
+  DISPUTE_NOTE
+  DISPUTE_OPENED
+  DISPUTE_EVIDENCE
+  DISPUTE_DECISION
+}
+
+// ============================================================================
+// USER & AUTH
+// ============================================================================
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  passwordHash  String
+  name          String
+  role          UserRole   @default(NONE)
+  status        UserStatus @default(ACTIVE)
+  kycStatus     KycStatus  @default(NONE)
+  profileImage  String?
+  emailVerified Boolean    @default(false)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // KYC Data
+  kycData       KycData?
+
+  // Relations
+  clientVaults     Vault[]   @relation("ClientVaults")
+  freelancerVaults Vault[]   @relation("FreelancerVaults")
+  ledgerEntries    LedgerEntry[]
+  disputes         Dispute[]
+  evidenceCreated  Evidence[]
+  invitesSent      Invite[]  @relation("InvitesSent")
+
+  @@index([email])
+  @@index([role])
+  @@index([kycStatus])
+}
+
+model KycData {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  fullName           String
+  dateOfBirth        DateTime
+  address            String
+  idDocumentUrl      String
+  proofOfAddressUrl  String?
+  submittedAt        DateTime @default(now())
+  reviewedAt         DateTime?
+  rejectionReason    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  accessToken  String   @unique
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([accessToken])
+  @@index([refreshToken])
+}
+
+// ============================================================================
+// VAULT & MILESTONES
+// ============================================================================
+
+model Vault {
+  id             String      @id @default(uuid())
+  title          String
+  description    String?
+  type           String // development | design | content_ai | consulting
+  status         VaultStatus @default(DRAFT)
+  totalAmount    Float
+  clientId       String
+  freelancerId   String?
+  escrowRef      String?     @unique // Blockchain reference (hidden from UI)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Relations
+  client         User        @relation("ClientVaults", fields: [clientId], references: [id])
+  freelancer     User?       @relation("FreelancerVaults", fields: [freelancerId], references: [id])
+  milestones     Milestone[]
+  ledgerEntries  LedgerEntry[]
+  disputes       Dispute[]
+  invites        Invite[]
+
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Milestone {
+  id                    String          @id @default(uuid())
+  vaultId               String
+  title                 String
+  status                MilestoneStatus @default(PENDING)
+  amount                Float
+  dueDate               DateTime?
+  deliverableTypeId     String?
+  deliverableMode       String?         // LINK | FILE
+  auditEnabled          Boolean         @default(true)
+  requirementItemsJson  Json?           // Array of RequirementItem
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  // Relations
+  vault         Vault              @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  submission    Submission?
+  verification  Verification?
+  review        MilestoneReview?
+  disputes      Dispute[]
+  ledgerEntries LedgerEntry[]
+  evidence      Evidence[]
+
+  @@index([vaultId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model Submission {
+  id              String   @id @default(uuid())
+  milestoneId     String   @unique
+  submittedAt     DateTime @default(now())
+  submittedBy     String
+  notes           String?
+  filesJson       Json?    // Array of SubmissionFile
+  deliverableType String?  // link | file
+  url             String?
+  fileUrl         String?
+  fileHash        String?
+  fileSize        Int?
+  fileMime        String?
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+}
+
+model Verification {
+  id               String             @id @default(uuid())
+  milestoneId      String             @unique
+  result           VerificationResult
+  verifiedAt       DateTime           @default(now())
+  verifiedBy       String             @default("AI") // AI | HUMAN
+  confidence       Float?
+  checksCompleted  Int?
+  checksTotal      Int?
+  riskLevel        String?            // LOW | MEDIUM | HIGH
+  flags            Json?              // Array of strings
+  checks           Json?              // Array of check descriptions
+  ruleResultsJson  Json?              // Array of rule results
+  notes            String?
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@index([result])
+}
+
+model MilestoneReview {
+  id          String                 @id @default(uuid())
+  milestoneId String                 @unique
+  reviewerId  String
+  outcome     MilestoneReviewOutcome
+  reasonCodes Json?                  // Array of strings
+  notes       String?
+  reviewedAt  DateTime               @default(now())
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+}
+
+// ============================================================================
+// DISPUTES & EVIDENCE
+// ============================================================================
+
+model Dispute {
+  id             String        @id @default(uuid())
+  vaultId        String
+  milestoneId    String
+  requirementRef String?       // reqId if requirement-specific
+  disputeType    DisputeType
+  reasonCode     String
+  openedByUserId String
+  openedByRole   UserRole
+  status         DisputeStatus @default(OPEN)
+  description    String
+  resolution     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  resolvedAt     DateTime?
+
+  // Relations
+  vault     Vault           @relation(fields: [vaultId], references: [id])
+  milestone Milestone       @relation(fields: [milestoneId], references: [id])
+  openedBy  User            @relation(fields: [openedByUserId], references: [id])
+  events    DisputeEvent[]
+  evidence  Evidence[]
+
+  @@index([vaultId])
+  @@index([milestoneId])
+  @@index([status])
+  @@index([openedByUserId])
+}
+
+model DisputeEvent {
+  id         String   @id @default(uuid())
+  disputeId  String
+  actorId    String?  // User ID or SYSTEM
+  actorRole  String?  // UserRole
+  eventType  String   // OPENED | EVIDENCE_ADDED | AI_REAUDIT | etc.
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId])
+  @@index([createdAt])
+}
+
+model Evidence {
+  id                      String       @id @default(uuid())
+  vaultId                 String
+  milestoneId             String?
+  disputeId               String?
+  type                    EvidenceType
+  payload                 Json
+  createdBy               String
+  immutableAfterSubmission Boolean     @default(true)
+  createdAt               DateTime     @default(now())
+
+  milestone Milestone? @relation(fields: [milestoneId], references: [id])
+  dispute   Dispute?   @relation(fields: [disputeId], references: [id])
+  creator   User       @relation(fields: [createdBy], references: [id])
+
+  @@index([vaultId])
+  @@index([milestoneId])
+  @@index([disputeId])
+  @@index([type])
+}
+
+// ============================================================================
+// LEDGER & WALLET
+// ============================================================================
+
+model LedgerEntry {
+  id          String            @id @default(uuid())
+  userId      String
+  vaultId     String?
+  milestoneId String?
+  type        LedgerEntryType
+  amount      Float
+  currency    String            @default("USD")
+  status      TransactionStatus @default(PENDING)
+  description String
+  providerRef String?           // rampTxId or chainTxHash
+  disputeId   String?
+  createdAt   DateTime          @default(now())
+  completedAt DateTime?
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id])
+  vault     Vault?     @relation(fields: [vaultId], references: [id])
+  milestone Milestone? @relation(fields: [milestoneId], references: [id])
+
+  @@index([userId])
+  @@index([vaultId])
+  @@index([milestoneId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// INVITATIONS
+// ============================================================================
+
+model Invite {
+  id           String       @id @default(uuid())
+  token        String       @unique
+  vaultId      String
+  email        String
+  status       InviteStatus @default(PENDING)
+  invitedBy    String
+  invitedAt    DateTime     @default(now())
+  expiresAt    DateTime
+  respondedAt  DateTime?
+  declineReason String?
+
+  // Relations
+  vault   Vault @relation(fields: [vaultId], references: [id])
+  inviter User  @relation("InvitesSent", fields: [invitedBy], references: [id])
+
+  @@index([token])
+  @@index([vaultId])
+  @@index([email])
+  @@index([status])
+}
+
+// ============================================================================
+// IDEMPOTENCY & WEBHOOKS
+// ============================================================================
+
+model IdempotencyRecord {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  userId       String
+  endpoint     String
+  requestHash  String
+  responseBody Json
+  statusCode   Int
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([key])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String   // ramp | chain
+  eventType   String
+  payload     Json
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([provider])
+  @@index([processed])
+  @@index([createdAt])
+}
