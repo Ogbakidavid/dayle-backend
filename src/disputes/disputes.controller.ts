@@ -1,34 +1,42 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { DisputesService } from './disputes.service';
-import { CreateDisputeDto } from './dto/create-dispute.dto';
-import { UpdateDisputeDto } from './dto/update-dispute.dto';
+import { Controller, Post, Get, Body, Query, Param } from "@nestjs/common";
+import { DisputesService } from "./disputes.service";
+import { CreateDisputeDto } from "./dto/create-dispute.dto";
+import { User } from "../common/decorators/user.decorator";
+import { DisputeStatus, UserRole } from "../domain/enums";
 
-@Controller('disputes')
+@Controller("disputes")
 export class DisputesController {
   constructor(private readonly disputesService: DisputesService) {}
 
   @Post()
-  create(@Body() createDisputeDto: CreateDisputeDto) {
-    return this.disputesService.create(createDisputeDto);
+  async create(@User("id") userId: string, @User("role") role: UserRole, @Body() dto: CreateDisputeDto) {
+    return this.disputesService.create(userId, role, dto);
   }
 
   @Get()
-  findAll() {
-    return this.disputesService.findAll();
+  async list(
+    @User("id") userId: string,
+    @Query("status") status?: DisputeStatus,
+    @Query("vaultId") vaultId?: string,
+    @Query("limit") limit?: number,
+    @Query("offset") offset?: number,
+  ) {
+    return this.disputesService.list(userId, status, vaultId, limit, offset);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.disputesService.findOne(+id);
+  @Get(":id")
+  async getById(@Param("id") id: string, @User("id") userId: string, @User("role") role: UserRole) {
+    return this.disputesService.getById(id, userId, role);
   }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDisputeDto: UpdateDisputeDto) {
-    return this.disputesService.update(+id, updateDisputeDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.disputesService.remove(+id);
+  
+  @Get("vault/:vaultId")
+  async listForVault(
+    @Param("vaultId") vaultId: string,
+    @User("id") userId: string,
+    @Query("status") status?: DisputeStatus,
+    @Query("limit") limit?: number,
+    @Query("offset") offset?: number,
+  ) {
+    return this.disputesService.list(userId, status, vaultId, limit, offset);
   }
 }

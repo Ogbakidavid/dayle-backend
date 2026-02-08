@@ -1,26 +1,19 @@
-import { Injectable } from '@nestjs/common';
-import { CreateUploadDto } from './dto/create-upload.dto';
-import { UpdateUploadDto } from './dto/update-upload.dto';
+import { Injectable } from "@nestjs/common";
+import { GetPresignedUrlDto } from "./dto/get-presigned-url.dto";
 
 @Injectable()
 export class UploadsService {
-  create(createUploadDto: CreateUploadDto) {
-    return 'This action adds a new upload';
-  }
+  async getPresignedUrl(dto: GetPresignedUrlDto) {
+    // Mockup presigned URL logic
+    // In a real app, you'd use AWS S3 SDK here
+    const fileId = Math.random().toString(36).substr(2, 9);
+    const uploadUrl = `https://s3.amazonaws.com/dayle-uploads/mock-upload-${fileId}`;
+    const fileUrl = uploadUrl;
 
-  findAll() {
-    return `This action returns all uploads`;
-  }
-
-  findOne(id: number) {
-    return `This action returns a #${id} upload`;
-  }
-
-  update(id: number, updateUploadDto: UpdateUploadDto) {
-    return `This action updates a #${id} upload`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} upload`;
+    return {
+      uploadUrl,
+      fileUrl,
+      expiresIn: 300,
+    };
   }
 }

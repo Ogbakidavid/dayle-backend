@@ -22,9 +22,10 @@ enum VaultStatus {
   FUNDED_ASSIGNED
   ACTIVE
   IN_REVIEW
-  COMPLETED
+  CLOSED
   CANCELLED
   PAUSED
+  DISPUTED
 }
 
 enum MilestoneStatus {
@@ -111,13 +112,12 @@ enum DisputeType {
 }
 
 enum EvidenceType {
-  CLARIFICATION_REQUEST
-  REQUIREMENT_CONFIRMATION
-  FILE_COMMENT
-  DISPUTE_NOTE
-  DISPUTE_OPENED
-  DISPUTE_EVIDENCE
-  DISPUTE_DECISION
+  MESSAGE
+  MESSAGE_SENT
+  REQUIREMENT_ITEM
+  SUBMISSION_DELTA
+  REVIEW_DECISION
+  DISPUTE_EVENT
 }
 
 // ============================================================================
@@ -134,6 +134,8 @@ model User {
   kycStatus     KycStatus  @default(NONE)
   profileImage  String?
   emailVerified Boolean    @default(false)
+  twoFaEnabled Boolean @default(false)
+  twoFactorSecret  String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -147,10 +149,24 @@ model User {
   disputes         Dispute[]
   evidenceCreated  Evidence[]
   invitesSent      Invite[]  @relation("InvitesSent")
+  wallet           Wallet?
 
   @@index([email])
   @@index([role])
   @@index([kycStatus])
+}
+
+model Wallet {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  address       String   @unique
+  privyDid      String   @unique
+  provider      String   @default("PRIVY")
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model KycData {

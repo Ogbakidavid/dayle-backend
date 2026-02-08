@@ -17,7 +17,7 @@ import { Type } from "class-transformer";
 import { VaultType, MilestoneDeliverableMode } from "../../domain/enums";
 
 export class RequirementItemDto {
-  @IsUUID()
+  @IsString()
   reqId: string;
 
   @IsString()

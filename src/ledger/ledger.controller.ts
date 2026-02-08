@@ -1,34 +1,32 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { LedgerService } from './ledger.service';
-import { CreateLedgerDto } from './dto/create-ledger.dto';
-import { UpdateLedgerDto } from './dto/update-ledger.dto';
+import { Controller, Get, Post, Query, Body } from "@nestjs/common";
+import { LedgerService } from "./ledger.service";
+import { User } from "../common/decorators/user.decorator";
+import { Roles } from "../common/decorators/roles.decorator";
+import { LedgerEntryType, UserRole } from "../domain/enums";
+import { WithdrawDto } from "./dto/withdraw.dto";
 
-@Controller('ledger')
+@Controller("ledger")
 export class LedgerController {
   constructor(private readonly ledgerService: LedgerService) {}
 
-  @Post()
-  create(@Body() createLedgerDto: CreateLedgerDto) {
-    return this.ledgerService.create(createLedgerDto);
+  @Get("balance")
+  async getBalance(@User("id") userId: string) {
+    return this.ledgerService.getBalance(userId);
   }
 
-  @Get()
-  findAll() {
-    return this.ledgerService.findAll();
+  @Get("transactions")
+  async getTransactions(
+    @User("id") userId: string,
+    @Query("limit") limit?: number,
+    @Query("offset") offset?: number,
+    @Query("type") type?: LedgerEntryType,
+  ) {
+    return this.ledgerService.getTransactions(userId, limit, offset, type);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.ledgerService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateLedgerDto: UpdateLedgerDto) {
-    return this.ledgerService.update(+id, updateLedgerDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.ledgerService.remove(+id);
+  @Post("withdraw")
+  @Roles(UserRole.FREELANCER)
+  async withdraw(@User("id") userId: string, @Body() dto: WithdrawDto) {
+    return this.ledgerService.withdraw(userId, dto);
   }
 }

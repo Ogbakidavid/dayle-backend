@@ -7,15 +7,17 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { SubmitMilestoneDto } from "./dto/submit-milestone.dto";
 import { ReviewMilestoneDto } from "./dto/review-milestone.dto";
-import { MilestoneStatus } from "../domain/enums";
+import { MilestoneStatus, UserRole } from "../domain/enums";
 import { StateMachine } from "../domain/state-machine";
 import { VerificationService } from "../verification/verification.service";
+import { EvidenceService } from "../evidence/evidence.service";
 
 @Injectable()
 export class MilestonesService {
   constructor(
     private prisma: PrismaService,
     private verificationService: VerificationService,
+    private evidenceService: EvidenceService,
   ) {}
 
   async submit(id: string, dto: SubmitMilestoneDto, userId: string) {
@@ -125,5 +127,22 @@ export class MilestonesService {
     });
 
     return updatedMilestone;
+  }
+
+  async verify(id: string) {
+    return this.verificationService.verify(id);
+  }
+
+  async getEvidence(milestoneId: string, userId: string, role: UserRole) {
+    // Check if milestone exists
+    const milestone = await this.prisma.milestone.findUnique({
+      where: { id: milestoneId },
+      include: { vault: true },
+    });
+
+    if (!milestone) throw new NotFoundException("Milestone not found");
+
+    // Pass through to evidence service for access check and listing
+    return this.evidenceService.list(userId, role, milestone.vaultId, milestoneId);
   }
 }

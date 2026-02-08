@@ -49,7 +49,15 @@ export class AuthGuard implements CanActivate {
   }
 
   private extractTokenFromHeader(request: any): string | undefined {
+    // Check Authorization header first (preferred for explicit API calls)
     const [type, token] = request.headers.authorization?.split(" ") ?? [];
-    return type === "Bearer" ? token : undefined;
+    if (type === "Bearer") return token;
+
+    // Check cookies as fallback
+    if (request.cookies?.access_token) {
+      return request.cookies.access_token;
+    }
+
+    return undefined;
   }
 }

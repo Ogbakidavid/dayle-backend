@@ -1,26 +1,115 @@
-import { Injectable } from '@nestjs/common';
-import { CreateOnboardingDto } from './dto/create-onboarding.dto';
-import { UpdateOnboardingDto } from './dto/update-onboarding.dto';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { SetRoleDto } from "./dto/set-role.dto";
+import { SubmitKycDto } from "./dto/submit-kyc.dto";
+import { UserRole, KycStatus } from "../domain/enums";
 
 @Injectable()
 export class OnboardingService {
-  create(createOnboardingDto: CreateOnboardingDto) {
-    return 'This action adds a new onboarding';
+  constructor(private prisma: PrismaService) {}
+
+  async setRole(userId: string, dto: SetRoleDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { role: dto.role },
+    });
+
+    return this.sanitizeUser(updatedUser);
   }
 
-  findAll() {
-    return `This action returns all onboarding`;
+  async submitKyc(userId: string, dto: SubmitKycDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { kycData: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    if (user.role === UserRole.NONE) {
+      throw new BadRequestException({
+        code: "ROLE_NOT_SET",
+        message: "Must set role first",
+      });
+    }
+
+    if (user.kycStatus === KycStatus.VERIFIED) {
+      throw new BadRequestException({
+        code: "KYC_ALREADY_VERIFIED",
+        message: "KYC already verified",
+      });
+    }
+
+    // Construct fields if missing from request but required by DB
+    const fullName =
+      dto.fullName ||
+      (dto.firstName && dto.lastName
+        ? `${dto.firstName} ${dto.lastName}`
+        : dto.firstName || dto.lastName || "Unknown User");
+
+    const address = dto.address || dto.country || "Address not provided";
+    const idDocumentUrl = dto.idDocumentUrl || "https://placeholder.com/id.jpg";
+
+    // Update kycStatus and create/update kycData
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: KycStatus.PENDING,
+        kycData: {
+          upsert: {
+            create: {
+              fullName: fullName,
+              dateOfBirth: new Date(dto.dateOfBirth),
+              address: address,
+              idDocumentUrl: idDocumentUrl,
+              proofOfAddressUrl: dto.proofOfAddressUrl,
+            },
+            update: {
+              fullName: fullName,
+              dateOfBirth: new Date(dto.dateOfBirth),
+              address: address,
+              idDocumentUrl: idDocumentUrl,
+              proofOfAddressUrl: dto.proofOfAddressUrl,
+            },
+          },
+        },
+      },
+    });
+
+    return this.sanitizeUser(updatedUser);
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} onboarding`;
+  async getStatus(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    return {
+      roleSet: user.role !== UserRole.NONE,
+      kycVerified: user.kycStatus === KycStatus.VERIFIED,
+      emailVerified: user.emailVerified,
+    };
   }
 
-  update(id: number, updateOnboardingDto: UpdateOnboardingDto) {
-    return `This action updates a #${id} onboarding`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} onboarding`;
+  private sanitizeUser(user: any) {
+    const { passwordHash, updatedAt, ...result } = user;
+    return result;
   }
 }

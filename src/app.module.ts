@@ -8,19 +8,22 @@ import { OnboardingModule } from "./onboarding/onboarding.module";
 import { VaultsModule } from "./vaults/vaults.module";
 import { MilestonesModule } from "./milestones/milestones.module";
 import { InvitesModule } from "./invites/invites.module";
-import { WalletModule } from "./wallet/wallet.module";
 import { LedgerModule } from "./ledger/ledger.module";
 import { DisputesModule } from "./disputes/disputes.module";
 import { UploadsModule } from "./uploads/uploads.module";
+import { EvidenceModule } from "./evidence/evidence.module";
 import { VerificationModule } from "./verification/verification.module";
+import { AdminModule } from "./admin/admin.module";
+import { AppController } from "./app.controller";
+import { AppService } from "./app.service";
 import { AuthGuard } from "./common/guards/auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
 
-
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true}),
+    ConfigModule.forRoot({ isGlobal: true }),
     JwtModule.registerAsync({
+      global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
@@ -34,15 +37,16 @@ import { RolesGuard } from "./common/guards/roles.guard";
     VaultsModule,
     MilestonesModule,
     InvitesModule,
-    WalletModule,
     LedgerModule,
     DisputesModule,
     UploadsModule,
+    EvidenceModule,
     VerificationModule,
-    
-
+    AdminModule,
   ],
+  controllers: [AppController],
   providers: [
+    AppService,
     {
       provide: APP_GUARD,
       useClass: AuthGuard,

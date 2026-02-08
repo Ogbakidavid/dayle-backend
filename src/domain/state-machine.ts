@@ -41,11 +41,14 @@ export class StateMachine {
     auditEnabled: boolean,
     verification: { result: VerificationResult } | null,
   ): { allowed: boolean; reason?: string } {
-    // Must be in AWAITING_APPROVAL
-    if (currentStatus !== MilestoneStatus.AWAITING_APPROVAL) {
+    // Must be in AWAITING_APPROVAL or VERIFIED
+    if (
+      currentStatus !== MilestoneStatus.AWAITING_APPROVAL &&
+      currentStatus !== MilestoneStatus.VERIFIED
+    ) {
       return {
         allowed: false,
-        reason: `Milestone must be in AWAITING_APPROVAL status, currently ${currentStatus}`,
+        reason: `Milestone must be in AWAITING_APPROVAL or VERIFIED status, currently ${currentStatus}`,
       };
     }
 

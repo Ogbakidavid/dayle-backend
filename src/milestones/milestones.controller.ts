@@ -1,4 +1,4 @@
-import { Controller, Post, Param, Body } from "@nestjs/common";
+import { Controller, Post, Param, Body, Get } from "@nestjs/common";
 import { MilestonesService } from "./milestones.service";
 import { SubmitMilestoneDto } from "./dto/submit-milestone.dto";
 import { ReviewMilestoneDto } from "./dto/review-milestone.dto";
@@ -20,6 +20,11 @@ export class MilestonesController {
     return this.milestonesService.submit(id, dto, userId);
   }
 
+  @Post(":id/verify")
+  async verify(@Param("id") id: string) {
+    return this.milestonesService.verify(id);
+  }
+
   @Post(":id/review")
   @Roles(UserRole.CLIENT)
   async review(
@@ -28,5 +33,14 @@ export class MilestonesController {
     @User("id") userId: string,
   ) {
     return this.milestonesService.review(id, dto, userId);
+  }
+
+  @Get(":id/evidence")
+  async getEvidence(
+    @Param("id") milestoneId: string,
+    @User("id") userId: string,
+    @User("role") role: UserRole,
+  ) {
+    return this.milestonesService.getEvidence(milestoneId, userId, role);
   }
 }
