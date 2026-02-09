@@ -16,22 +16,34 @@ export class PrivyService implements OnModuleInit {
       console.warn("PRIVY_APP_ID or PRIVY_APP_SECRET not set. PrivyService will not function correctly.");
       return;
     }
-
+    
+    console.log(`Initializing PrivyClient with App ID: ${appId}`);
     this.privy = new PrivyClient(appId, appSecret);
   }
 
   async verifyToken(token: string) {
     if (!this.privy) {
+      console.error("PrivyClient not initialized during verifyToken call");
       throw new Error("PrivyClient not initialized");
     }
-    return this.privy.verifyAuthToken(token);
+    try {
+        return await this.privy.verifyAuthToken(token);
+    } catch (e) {
+        console.error("Privy verifyAuthToken failed:", e);
+        throw e;
+    }
   }
 
   async getUser(userId: string) {
     if (!this.privy) {
       throw new Error("PrivyClient not initialized");
     }
-    return this.privy.getUser(userId);
+    try {
+        return await this.privy.getUser(userId);
+    } catch (e) {
+        console.error(`Privy getUser failed for ${userId}:`, e);
+        throw e;
+    }
   }
 
   async createWallet(email: string) {

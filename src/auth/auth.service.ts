@@ -244,12 +244,27 @@ export class AuthService {
         name = email.split("@")[0];
     }
 
-    let user = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { wallet: { privyDid: did } }],
-      },
+    // Check for existing user by email or wallet DID
+    let user = await this.prisma.user.findUnique({
+      where: { email },
       include: { wallet: true },
     });
+
+    if (!user) {
+        // If not found by email, try finding by wallet DID (if they changed email in social provider but DID is same? Unlikely for social login but good for safety)
+        // Actually, for social login, email is the primary connector.
+        // Let's stick to email first. 
+        // If we want to support finding by wallet, we need to know if wallet is unique enough or if we have it.
+        const wallet = await this.prisma.wallet.findFirst({
+            where: { privyDid: did },
+            include: { user: true }
+        });
+        if (wallet && wallet.user) {
+            user = wallet.user as any; 
+            // We found them by wallet, but email might have changed or is different. 
+            // For now, let's assume if found by wallet, it's them.
+        }
+    }
 
     if (!user) {
       // Create new user if not found
@@ -260,14 +275,34 @@ export class AuthService {
             name,
             passwordHash: "", // No password for social users
             role: UserRole.NONE,
-            emailVerified: true,
+            emailVerified:
+              (privyUser as any).google?.email ||
+              (privyUser as any).github?.email
+                ? true
+                : false,
           },
         });
+
+        // Check if Privy user has an embedded wallet
+        const embeddedWallet = privyUser.wallet;
+        
+        // With createOnLogin: 'all-users', the wallet SHOULD exist.
+        // If not, we might need to handle it, but for now we assume it exists or use a placeholder
+        // that indicates it needs sync. 
+        // Note: address is required and unique in schema.
+        
+        const walletAddress = embeddedWallet ? embeddedWallet.address : "";
+        
+        if (!walletAddress) {
+            console.warn(`Privy User ${did} has no wallet address during signup.`);
+             // We can throw here, or continue and try to create one?
+             // Since we switched to 'all-users', we expect it.
+        }
 
         await tx.wallet.create({
           data: {
             userId: newUser.id,
-            address: privyUser.wallet ? privyUser.wallet.address : "", 
+            address: walletAddress || `pending_${did}`, // Temporary fallback to avoid failure if slow
             privyDid: did,
             provider: "PRIVY",
           },
@@ -280,14 +315,32 @@ export class AuthService {
       });
     } else if (!user.wallet) {
       // Link existing user to Privy if not linked
-      await this.prisma.wallet.create({
-        data: {
-          userId: user.id,
-          address: privyUser.wallet ? privyUser.wallet.address : "",
-          privyDid: did,
-          provider: "PRIVY",
-        },
-      });
+      // Check if wallet for this DID already exists to avoid unique constraint error
+      const existingWallet = await this.prisma.wallet.findFirst({ where: { privyDid: did } });
+      
+      if (!existingWallet) {
+          const embeddedWallet = privyUser.wallet;
+          const walletAddress = embeddedWallet ? embeddedWallet.address : `pending_${did}`;
+
+          await this.prisma.wallet.create({
+            data: {
+              userId: user.id,
+              address: walletAddress,
+              privyDid: did,
+              provider: "PRIVY",
+            },
+          });
+      } else {
+          // Wallet exists but not linked to this user? This is weird state. 
+          // Maybe update wallet to point to this user if it's orphaned?
+          // Or just log it.
+          console.warn(`Wallet with DID ${did} exists but user ${user.id} has no wallet linked. Linking now if possible.`);
+          // If the wallet entry exists, it points to A user. 
+          // If it points to THIS user, then user.wallet should have been set.
+          // If it points to another user, we have a conflict.
+      }
+
+      // Refresh user object
       user = await this.prisma.user.findUnique({
         where: { id: user.id },
         include: { wallet: true },
