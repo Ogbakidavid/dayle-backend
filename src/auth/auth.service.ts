@@ -46,6 +46,7 @@ export class AuthService {
           passwordHash,
           name: dto.name,
           role: dto.role || UserRole.NONE,
+          emailVerified: false, 
         },
       });
 
@@ -175,6 +176,23 @@ export class AuthService {
     // 3. Send an email with the verification link
     // For now, we'll just return success
     return { success: true, message: "Verification email sent." };
+  }
+
+  async resendVerificationEmail(userId: string) {
+      const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+      });
+
+      if (!user) {
+          throw new UnauthorizedException("User not found");
+      }
+
+      if (user.emailVerified) {
+          return { success: true, message: "Email already verified" };
+      }
+
+      // Logic to resend email (mock)
+      return { success: true, message: "Verification email resent" };
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {

@@ -85,6 +85,11 @@ export class AuthController {
     return this.authService.sendVerificationEmail(dto);
   }
 
+  @Post("resend-verification-email")
+  async resendVerificationEmail(@User("id") userId: string) {
+      return this.authService.resendVerificationEmail(userId);
+  }
+
   @Patch("profile")
   async updateProfile(
     @User("id") userId: string,
