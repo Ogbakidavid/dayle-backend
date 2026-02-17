@@ -19,6 +19,7 @@ import { AppService } from "./app.service";
 import { AuthGuard } from "./common/guards/auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
 import { NotificationsModule } from './notifications/notifications.module';
+import { RedisModule } from "./common/redis/redis.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       }),
     }),
     PrismaModule,
+    RedisModule,
     AuthModule,
     OnboardingModule,
     VaultsModule,

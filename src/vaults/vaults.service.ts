@@ -20,11 +20,15 @@ import {
 } from "../domain/enums";
 import { StateMachine } from "../domain/state-machine";
 import * as crypto from "crypto";
+import { RedisService } from "../common/redis/redis.service";
 import { Prisma } from "@prisma/client";
 
 @Injectable()
 export class VaultsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
 
   async create(dto: CreateVaultDto, userId: string) {
     const milestoneSum = dto.milestones.reduce((sum, m) => sum + m.amount, 0);
@@ -84,10 +88,27 @@ export class VaultsService {
       });
     }
 
+    await this.invalidateVaultCache(vault.id, userId, vault.freelancerId);
     return this.formatVault(vault);
   }
 
+  private async invalidateVaultCache(vaultId: string, clientId: string, freelancerId?: string | null) {
+    const keys = [
+      `vaults:detail:${vaultId}`,
+      `vaults:list:${UserRole.CLIENT}:${clientId}`,
+    ];
+    if (freelancerId) {
+      keys.push(`vaults:list:${UserRole.FREELANCER}:${freelancerId}`);
+    }
+    await Promise.all(keys.map(key => this.redis.del(key)));
+  }
+
+
   async list(userId: string, role: UserRole) {
+    const cacheKey = `vaults:list:${role}:${userId}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
     const where = role === UserRole.CLIENT ? { clientId: userId } : { freelancerId: userId };
     const vaults = await this.prisma.vault.findMany({
       where,
@@ -99,34 +120,50 @@ export class VaultsService {
       orderBy: { createdAt: "desc" },
     });
 
-    return {
+    const result = {
       vaults: vaults.map((v) => this.formatVault(v)),
       total: vaults.length,
     };
+
+    await this.redis.set(cacheKey, JSON.stringify(result), 3600); // 1 hour TTL
+    return result;
   }
 
-  async getById(id: string, userId: string) {
-    const vault = await this.prisma.vault.findUnique({
-      where: { id },
-      include: {
-        milestones: {
-          include: { submission: true, verification: true, review: true },
-        },
-        client: { select: { id: true, name: true, email: true } },
-        freelancer: { select: { id: true, name: true, email: true } },
-      },
-    });
 
-    if (!vault) {
-      throw new NotFoundException({ code: "VAULT_NOT_FOUND", message: "Vault not found" });
+  async getById(id: string, userId: string) {
+    const cacheKey = `vaults:detail:${id}`;
+    const cached = await this.redis.get(cacheKey);
+    let vaultResult: any;
+
+    if (cached) {
+      vaultResult = JSON.parse(cached);
+    } else {
+      const vault = await this.prisma.vault.findUnique({
+        where: { id },
+        include: {
+          milestones: {
+            include: { submission: true, verification: true, review: true },
+          },
+          client: { select: { id: true, name: true, email: true } },
+          freelancer: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      if (!vault) {
+        throw new NotFoundException({ code: "VAULT_NOT_FOUND", message: "Vault not found" });
+      }
+
+      vaultResult = this.formatVault(vault);
+      await this.redis.set(cacheKey, JSON.stringify(vaultResult), 3600); // 1 hour TTL
     }
 
-    if (vault.clientId !== userId && vault.freelancerId !== userId) {
+    if (vaultResult.clientId !== userId && vaultResult.freelancerId !== userId) {
       throw new ForbiddenException({ code: "UNAUTHORIZED", message: "Not authorized" });
     }
 
-    return this.formatVault(vault);
+    return vaultResult;
   }
+
 
   async fund(id: string, dto: FundVaultDto, userId: string) {
     const vault = await this.prisma.vault.findUnique({
@@ -167,6 +204,7 @@ export class VaultsService {
       return updatedVault;
     });
 
+    await this.invalidateVaultCache(id, userId, result.freelancerId);
     return this.formatVault(result);
   }
 
@@ -222,6 +260,7 @@ export class VaultsService {
       return { milestone: updatedMilestone, ledgerEntry };
     });
 
+    await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
     return result;
   }
 
@@ -286,6 +325,7 @@ export class VaultsService {
       return { success: true, ledgerEntry };
     });
 
+    await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
     return result;
   }
 
@@ -299,6 +339,7 @@ export class VaultsService {
       data: { status: dto.status as any },
     });
 
+    await this.invalidateVaultCache(id, userId, updatedVault.freelancerId);
     return this.formatVault(updatedVault);
   }
 
