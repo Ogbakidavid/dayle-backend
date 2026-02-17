@@ -107,13 +107,14 @@ export class AuthController {
   }
 
   @Public()
-  @Post("social-login")
-  async socialLogin(
-    @Body() dto: { accessToken: string },
+  @Post("privy-login")
+  async privyLogin(
+    @Body() dto: { accessToken: string; role?: string },
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { accessToken, refreshToken, user } = await this.authService.socialLogin(
-      dto.accessToken
+    const { accessToken, refreshToken, user } = await this.authService.privyLogin(
+      dto.accessToken,
+      dto.role,
     );
     this.setTokensInCookies(response, accessToken, refreshToken);
     return { user, accessToken };

@@ -18,6 +18,7 @@ import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { AuthGuard } from "./common/guards/auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     EvidenceModule,
     VerificationModule,
     AdminModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -207,8 +207,8 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
-  async socialLogin(accessToken: string) {
-    let verifiedClaims;
+  async privyLogin(accessToken: string, role?: string) {
+    let verifiedClaims: any;
     try {
       verifiedClaims = await this.privyService.verifyToken(accessToken);
     } catch (error) {
@@ -285,6 +285,9 @@ export class AuthService {
     }
 
     if (!user) {
+      // Validate role if provided
+      const userRole = role && Object.values(UserRole).includes(role as UserRole) ? (role as UserRole) : UserRole.NONE;
+
       // Create new user if not found
       user = await this.prisma.$transaction(async (tx) => {
         const newUser = await tx.user.create({
@@ -292,24 +295,23 @@ export class AuthService {
             email,
             name,
             passwordHash: "", // No password for social users
-            role: UserRole.NONE,
-            emailVerified:
-              (privyUser as any).google?.email ||
-              (privyUser as any).github?.email
-                ? true
-                : false,
+            role: userRole,
+            emailVerified: true,
           },
         });
 
         // Check if Privy user has an embedded wallet
-        const embeddedWallet = privyUser.wallet;
+        const embeddedWallet = privyUser.linkedAccounts.find(
+          (account) =>
+            account.type === "wallet" && account.walletClientType === "privy",
+        );
         
         // With createOnLogin: 'all-users', the wallet SHOULD exist.
         // If not, we might need to handle it, but for now we assume it exists or use a placeholder
         // that indicates it needs sync. 
         // Note: address is required and unique in schema.
         
-        const walletAddress = embeddedWallet ? embeddedWallet.address : "";
+        const walletAddress = embeddedWallet ? (embeddedWallet as any).address : "";
         
         if (!walletAddress) {
             console.warn(`Privy User ${did} has no wallet address during signup.`);
@@ -317,14 +319,31 @@ export class AuthService {
              // Since we switched to 'all-users', we expect it.
         }
 
-        await tx.wallet.create({
-          data: {
-            userId: newUser.id,
-            address: walletAddress || `pending_${did}`, // Temporary fallback to avoid failure if slow
-            privyDid: did,
-            provider: "PRIVY",
-          },
+        // Check if a wallet with this DID already exists (orphaned wallet case)
+        const existingWallet = await tx.wallet.findUnique({
+          where: { privyDid: did },
         });
+
+        if (existingWallet) {
+             // Link the existing orphaned wallet to the new user
+             await tx.wallet.update({
+               where: { id: existingWallet.id },
+               data: {
+                 userId: newUser.id,
+                 address: walletAddress || existingWallet.address, // Update address if we have a better one, or keep existing
+                 provider: "PRIVY",
+               },
+             });
+        } else {
+             await tx.wallet.create({
+               data: {
+                 userId: newUser.id,
+                 address: walletAddress || `pending_${did}`,
+                 privyDid: did,
+                 provider: "PRIVY",
+               },
+             });
+        }
 
         return tx.user.findUnique({
           where: { id: newUser.id },

@@ -150,6 +150,8 @@ model User {
   evidenceCreated  Evidence[]
   invitesSent      Invite[]  @relation("InvitesSent")
   wallet           Wallet?
+  notifications    Notification[]
+  notificationPreferences NotificationPreferences?
 
   @@index([email])
   @@index([role])
@@ -469,4 +471,45 @@ model WebhookEvent {
   @@index([provider])
   @@index([processed])
   @@index([createdAt])
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // milestone, payment, security, kyc, general
+  title     String
+  message   String
+  timestamp DateTime @default(now())
+  read      Boolean  @default(false)
+  action    String?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([timestamp])
+}
+
+model NotificationPreferences {
+  id                    String  @id @default(uuid())
+  userId                String  @unique
+  emailEnabled          Boolean @default(true)
+  
+  // Telegram
+  telegramConnected     Boolean @default(false)
+  telegramUsername      String?
+  telegramChatId        String?
+  
+  // WhatsApp
+  whatsappPhoneVerified Boolean @default(false)
+  whatsappPhoneE164     String?
+  whatsappConfirmCode   String? // Temporary storage for verification
+  
+  updatedAt             DateTime @updatedAt
+
+  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
