@@ -1,6 +1,6 @@
 import { Controller, Post, Body, UnauthorizedException, Res } from '@nestjs/common';
 import { AdminAuthService } from './admin-auth.service';
-import { LoginDto } from '../../auth/dto/login.dto';
+import { AdminLoginDto } from './dto/admin-login.dto';
 import type { Response } from 'express';
 
 @Controller('admin/auth')
@@ -8,7 +8,7 @@ export class AdminAuthController {
   constructor(private authService: AdminAuthService) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) response: Response) {
+  async login(@Body() dto: AdminLoginDto, @Res({ passthrough: true }) response: Response) {
      const admin = await this.authService.validateAdmin(dto.email, dto.password);
      if (!admin) {
          throw new UnauthorizedException('Invalid admin credentials');
