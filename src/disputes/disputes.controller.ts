@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Body, Query, Param } from "@nestjs/common";
 import { DisputesService } from "./disputes.service";
 import { CreateDisputeDto } from "./dto/create-dispute.dto";
+import { ResolveDisputeDto } from "./dto/resolve-dispute.dto";
 import { User } from "../common/decorators/user.decorator";
 import { DisputeStatus, UserRole } from "../domain/enums";
 
@@ -38,5 +39,14 @@ export class DisputesController {
     @Query("offset") offset?: number,
   ) {
     return this.disputesService.list(userId, status, vaultId, limit, offset);
+  }
+
+  @Post(":id/resolve")
+  async resolve(
+    @Param("id") id: string,
+    @User("id") adminId: string,
+    @Body() dto: ResolveDisputeDto,
+  ) {
+    return this.disputesService.resolve(id, adminId, dto);
   }
 }

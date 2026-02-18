@@ -186,19 +186,6 @@ model KycData {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Session {
-  id           String   @id @default(uuid())
-  userId       String
-  accessToken  String   @unique
-  refreshToken String   @unique
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-
-  @@index([userId])
-  @@index([accessToken])
-  @@index([refreshToken])
-}
-
 // ============================================================================
 // VAULT & MILESTONES
 // ============================================================================
@@ -213,6 +200,8 @@ model Vault {
   clientId       String
   freelancerId   String?
   escrowRef      String?     @unique // Blockchain reference (hidden from UI)
+  isFrozen       Boolean     @default(false)
+  frozenReason   String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -440,7 +429,7 @@ model Invite {
 }
 
 // ============================================================================
-// IDEMPOTENCY & WEBHOOKS
+// IDEMPOTENCY
 // ============================================================================
 
 model IdempotencyRecord {
@@ -457,20 +446,6 @@ model IdempotencyRecord {
   @@index([key])
   @@index([userId])
   @@index([expiresAt])
-}
-
-model WebhookEvent {
-  id          String   @id @default(uuid())
-  provider    String   // ramp | chain
-  eventType   String
-  payload     Json
-  processed   Boolean  @default(false)
-  processedAt DateTime?
-  createdAt   DateTime @default(now())
-
-  @@index([provider])
-  @@index([processed])
-  @@index([createdAt])
 }
 
 // ============================================================================

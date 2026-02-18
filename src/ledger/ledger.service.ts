@@ -2,10 +2,16 @@ import { Injectable, BadRequestException, ForbiddenException } from "@nestjs/com
 import { PrismaService } from "../prisma/prisma.service";
 import { LedgerEntryType, TransactionStatus, KycStatus } from "../domain/enums";
 import { WithdrawDto } from "./dto/withdraw.dto";
+import { PaymentRouter } from "../common/services/payment-router.service";
+import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class LedgerService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private paymentRouter: PaymentRouter,
+    private configService: ConfigService,
+  ) {}
 
   async getBalance(userId: string) {
     const entries = await this.prisma.ledgerEntry.findMany({
@@ -87,6 +93,8 @@ export class LedgerService {
 
     // 4. Create Withdrawal Record (LedgerEntry)
     const result = await this.prisma.$transaction(async (tx) => {
+      const providerRef = `withdraw_${userId}_${Date.now()}`;
+      
       const entry = await tx.ledgerEntry.create({
         data: {
           userId,
@@ -95,7 +103,22 @@ export class LedgerService {
           currency: "USD",
           status: TransactionStatus.PENDING,
           description: `Withdrawal to bank account ***${dto.bankDetails.accountNumber.slice(-4)}`,
+          providerRef,
         },
+      });
+
+      // Trigger Payment Router (Offramp)
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      const offrampResult = await this.paymentRouter.initiateOfframp({
+        amount: dto.amount,
+        currency: "USD",
+        reference: providerRef,
+        bankDetails: {
+          account_number: dto.bankDetails.accountNumber,
+          bank_code: dto.bankDetails.routingNumber,
+          account_name: dto.bankDetails.accountName,
+        },
+        customerEmail: user?.email || "",
       });
 
       // Simple response body for current state
@@ -106,6 +129,7 @@ export class LedgerService {
         amount: entry.amount,
         currency: "USD",
         status: entry.status,
+        providerRef,
       };
 
       await tx.idempotencyRecord.create({

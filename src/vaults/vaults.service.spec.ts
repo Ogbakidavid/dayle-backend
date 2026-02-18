@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { VaultsService } from './vaults.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
+import { PaymentRouter } from '../common/services/payment-router.service';
 
 describe('VaultsService', () => {
   let service: VaultsService;
@@ -11,6 +12,10 @@ describe('VaultsService', () => {
     get: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
+  };
+  const mockPaymentRouter = {
+    initiateOnramp: jest.fn(),
+    initiateOfframp: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -24,6 +29,10 @@ describe('VaultsService', () => {
         {
           provide: RedisService,
           useValue: mockRedisService,
+        },
+        {
+          provide: PaymentRouter,
+          useValue: mockPaymentRouter,
         },
       ],
     }).compile();

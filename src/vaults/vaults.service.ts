@@ -10,6 +10,7 @@ import { ReleaseMilestoneDto } from "./dto/release-milestone.dto";
 import { RefundMilestoneDto } from "./dto/refund-milestone.dto";
 import { FundVaultDto } from "./dto/fund-vault.dto";
 import { UpdateVaultStatusDto } from "./dto/update-vault-status.dto";
+import { PaymentRouter } from "../common/services/payment-router.service";
 import {
   VaultStatus,
   MilestoneStatus,
@@ -28,6 +29,7 @@ export class VaultsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private paymentRouter: PaymentRouter,
   ) {}
 
   async create(dto: CreateVaultDto, userId: string) {
@@ -182,30 +184,38 @@ export class VaultsService {
       throw new BadRequestException({ code: "INVALID_STATE", message: "Vault not in DRAFT status" });
     }
 
-    // Logic for funding (ledger entry, status update)
+    // Logic for funding (ledger entry, collection voucher)
     const result = await this.prisma.$transaction(async (tx) => {
-      const updatedVault = await tx.vault.update({
-        where: { id },
-        data: { status: vault.freelancerId ? VaultStatus.ACTIVE : VaultStatus.FUNDED_UNASSIGNED },
-      });
-
-      await tx.ledgerEntry.create({
+      // Create ledger entry in PENDING status
+      const providerRef = `vault_fund_${id}_${Date.now()}`;
+      
+      const ledgerEntry = await tx.ledgerEntry.create({
         data: {
           userId,
           vaultId: id,
           type: LedgerEntryType.DEPOSIT,
           amount: vault.totalAmount,
           currency: "USD",
-          status: TransactionStatus.CONFIRMED,
+          status: TransactionStatus.PENDING,
           description: `Funding for vault: ${vault.title}`,
+          providerRef,
         },
       });
 
-      return updatedVault;
+      // Payment router integration (Onramp)
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      const onrampResult = await this.paymentRouter.initiateOnramp({
+        amount: vault.totalAmount,
+        currency: "USD",
+        reference: providerRef,
+        customerEmail: user?.email || "",
+      });
+
+      return { vault, ledgerEntry, paymentUrl: onrampResult.paymentUrl, provider: onrampResult.provider };
     });
 
-    await this.invalidateVaultCache(id, userId, result.freelancerId);
-    return this.formatVault(result);
+    await this.invalidateVaultCache(id, userId, vault.freelancerId);
+    return result;
   }
 
   async releaseMilestone(vaultId: string, dto: ReleaseMilestoneDto, userId: string) {

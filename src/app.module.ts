@@ -20,6 +20,9 @@ import { AuthGuard } from "./common/guards/auth.guard";
 import { RolesGuard } from "./common/guards/roles.guard";
 import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from "./common/redis/redis.module";
+import { WebhooksModule } from "./webhooks/webhooks.module";
+import { ServicesModule } from "./common/services/services.module";
+import { AuditModule } from "./audit/audit.module";
 
 @Module({
   imports: [
@@ -35,6 +38,7 @@ import { RedisModule } from "./common/redis/redis.module";
     }),
     PrismaModule,
     RedisModule,
+    ServicesModule,
     AuthModule,
     OnboardingModule,
     VaultsModule,
@@ -47,6 +51,8 @@ import { RedisModule } from "./common/redis/redis.module";
     VerificationModule,
     AdminModule,
     NotificationsModule,
+    WebhooksModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [

@@ -40,6 +40,11 @@ export class MilestonesService {
       });
     }
 
+    const vault = milestone.vault as any;
+    if (vault.isFrozen) {
+      throw new ForbiddenException(`Vault is FROZEN: ${vault.frozenReason}`);
+    }
+
     // State machine validation
     const canSubmit = StateMachine.canSubmitMilestone(
       milestone.status as MilestoneStatus,
