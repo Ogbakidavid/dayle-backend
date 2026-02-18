@@ -14,6 +14,7 @@ import { UploadsModule } from "./uploads/uploads.module";
 import { EvidenceModule } from "./evidence/evidence.module";
 import { VerificationModule } from "./verification/verification.module";
 import { AdminModule } from "./admin/admin.module";
+import { AdminAuthModule } from "./admin/auth/admin-auth.module";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { AuthGuard } from "./common/guards/auth.guard";
@@ -52,7 +53,10 @@ import { AuditModule } from "./audit/audit.module";
     AdminModule,
     NotificationsModule,
     WebhooksModule,
+    NotificationsModule,
+    WebhooksModule,
     AuditModule,
+    AdminAuthModule,
   ],
   controllers: [AppController],
   providers: [

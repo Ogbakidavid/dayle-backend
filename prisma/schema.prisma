@@ -145,7 +145,7 @@ model User {
   clientVaults     Vault[]   @relation("ClientVaults")
   freelancerVaults Vault[]   @relation("FreelancerVaults")
   ledgerEntries    LedgerEntry[]
-  disputes         Dispute[]
+  disputes         Dispute[] // Disputes opened by this user
   evidenceCreated  Evidence[]
   invitesSent      Invite[]  @relation("InvitesSent")
   wallet           Wallet?
@@ -156,6 +156,18 @@ model User {
   @@index([email])
   @@index([role])
   @@index([kycStatus])
+}
+
+model Admin {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  permissions   Json?    // Array of strings e.g. ["MANAGE_USERS", "RESOLVE_DISPUTES"]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations - Admins don't own these but might reference them in logs
+  // For now, no direct relations needed as they oversee everything
 }
 
 model Wallet {
