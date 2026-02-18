@@ -454,53 +454,9 @@ export class AuthService {
     return { success: true, revokedCount: result.count };
   }
 
-  // 2FA Management
-  async enable2FA(userId: string) {
-    const secret = "MOCK_SECRET_" + Math.random().toString(36).substr(2, 9).toUpperCase();
-    return {
-      secret,
-      qrCodeUrl: `otpauth://totp/Dayle?secret=${secret}&issuer=Dayle`,
-      recoveryCodes: ["ABCD-1234", "EFGH-5678", "IJKL-9012"],
-      tempSecret: secret,
-    };
-  }
-
-  async verify2FA(userId: string, code: string, tempSecret: string) {
-    if (code !== "123456") throw new BadRequestException("Invalid 2FA code");
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { twoFaEnabled: true, twoFactorSecret: tempSecret },
-    });
-
-    return { success: true };
-  }
-
-  async disable2FA(userId: string, code: string) {
-    if (code !== "123456") throw new BadRequestException("Invalid 2FA code");
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { twoFaEnabled: false, twoFactorSecret: null },
-    });
-
-    return { success: true };
-  }
-
   async get2FAStatus(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     return { enabled: user?.twoFaEnabled || false };
-  }
-
-  async verify2FAOnLogin(email: string, code: string) {
-    if (code !== "123456") throw new BadRequestException("Invalid 2FA code");
-
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || !user.twoFaEnabled) {
-      throw new BadRequestException("2FA not enabled for this user");
-    }
-
-    return { success: true };
   }
 
   private sanitizeUser(user: any) {

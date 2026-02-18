@@ -140,27 +140,6 @@ export class AuthController {
   }
 
   // 2FA Management
-  @Post("2fa/enable")
-  async enable2FA(@User("id") userId: string) {
-    return this.authService.enable2FA(userId);
-  }
-
-  @Post("2fa/verify")
-  async verify2FA(
-    @User("id") userId: string,
-    @Body() dto: { code: string; tempSecret: string },
-  ) {
-    return this.authService.verify2FA(userId, dto.code, dto.tempSecret);
-  }
-
-  @Post("2fa/disable")
-  async disable2FA(
-    @User("id") userId: string,
-    @Body() dto: { code: string },
-  ) {
-    return this.authService.disable2FA(userId, dto.code);
-  }
-
   @Get("2fa/status")
   async get2FAStatus(@User("id") userId: string) {
     return this.authService.get2FAStatus(userId);
@@ -174,11 +153,5 @@ export class AuthController {
     return this.authService.changePassword(userId, dto);
   }
 
-  @Public()
-  @Post("2fa/verify-login")
-  async verify2FAOnLogin(
-    @Body() dto: { email: string; code: string },
-  ) {
-    return this.authService.verify2FAOnLogin(dto.email, dto.code);
-  }
+
 }
