@@ -14,7 +14,6 @@ import { LinkSmartAccountDto } from "./dto/link-smart-account.dto";
 import { ChangePasswordDto } from "./dto/change-password.dto";
 import { JwtService } from "@nestjs/jwt";
 import { PrivyService } from "./privy.service";
-import * as bcrypt from "bcrypt";
 import { UserRole, KycStatus } from "../domain/enums";
 
 @Injectable()
@@ -37,16 +36,15 @@ export class AuthService {
       });
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+
 
     const result = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email: dto.email,
-          passwordHash,
           name: dto.name,
           role: dto.role || UserRole.NONE,
-          emailVerified: false, 
+          emailVerified: false,
         },
       });
 
@@ -90,7 +88,7 @@ export class AuthService {
         where: { email: dto.email },
       });
 
-      if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+      if (!user) {
         throw new UnauthorizedException({
           code: "INVALID_CREDENTIALS",
           message: "Email or password incorrect",
@@ -111,12 +109,25 @@ export class AuthService {
 
       console.log("[AuthService] Signing JWT with payload:", payload);
 
+      const accessToken = await this.jwtService.signAsync(payload);
+      const refreshToken = await this.jwtService.signAsync(payload, { expiresIn: "30d" });
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
+
+      // Create Session
+      await this.prisma.session.create({
+        data: {
+          userId: user.id,
+          accessToken,
+          refreshToken,
+          expiresAt,
+        }
+      });
+
       return {
         user: sanitized,
-        accessToken: await this.jwtService.signAsync(payload),
-        refreshToken: await this.jwtService.signAsync(payload, {
-          expiresIn: "30d",
-        }),
+        accessToken,
+        refreshToken,
       };
     } catch (error) {
       console.error("Login error:", error);
@@ -132,6 +143,7 @@ export class AuthService {
   async getCurrentUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      include: { wallet: true },
     });
 
     if (!user) {
@@ -294,7 +306,6 @@ export class AuthService {
           data: {
             email,
             name,
-            passwordHash: "", // No password for social users
             role: userRole,
             emailVerified: true,
           },
@@ -417,55 +428,30 @@ export class AuthService {
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user || !user.passwordHash) {
-      throw new UnauthorizedException("User not found or using social login");
-    }
-
-    const isPasswordValid = await bcrypt.compare(
-      dto.currentPassword,
-      user.passwordHash,
-    );
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException("Current password incorrect");
-    }
-
-    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash },
-    });
-
-    return { success: true };
+    // Password change functionality removed as we rely on Privy
+    throw new BadRequestException("Password management is handled by Privy/Social providers");
   }
 
-  // Session Management (Mock Implementation)
+  // Session Management
   async getSessions(userId: string) {
-    return [
-      {
-        id: "sess_current",
-        ip: "127.0.0.1",
-        device: "Current Device",
-        lastActive: new Date().toISOString(),
-        current: true,
-      },
-    ];
+    return this.prisma.session.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
   }
 
   async revokeSession(userId: string, sessionId: string) {
-    if (sessionId === "sess_current") {
-      throw new BadRequestException("Cannot revoke current session");
-    }
+    await this.prisma.session.deleteMany({
+      where: { id: sessionId, userId }
+    });
     return { success: true };
   }
 
   async revokeAllSessions(userId: string) {
-    return { success: true, revokedCount: 0 };
+    const result = await this.prisma.session.deleteMany({
+      where: { userId }
+    });
+    return { success: true, revokedCount: result.count };
   }
 
   // 2FA Management
@@ -518,7 +504,7 @@ export class AuthService {
   }
 
   private sanitizeUser(user: any) {
-    const { passwordHash, twoFactorSecret, ...rest } = user;
+    const { twoFactorSecret, ...rest } = user;
     return rest;
   }
 }

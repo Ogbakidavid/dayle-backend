@@ -127,7 +127,6 @@ enum EvidenceType {
 model User {
   id            String     @id @default(uuid())
   email         String     @unique
-  passwordHash  String
   name          String
   role          UserRole   @default(NONE)
   status        UserStatus @default(ACTIVE)
@@ -152,6 +151,7 @@ model User {
   wallet           Wallet?
   notifications    Notification[]
   notificationPreferences NotificationPreferences?
+  sessions         Session[]
 
   @@index([email])
   @@index([role])
@@ -184,6 +184,23 @@ model KycData {
   rejectionReason    String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  accessToken  String   @unique // Hashed or encrypted in production ideally, but generic JWT for now
+  refreshToken String   @unique
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accessToken])
+  @@index([refreshToken])
 }
 
 // ============================================================================

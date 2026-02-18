@@ -115,7 +115,10 @@ export class VaultsService {
     const vaults = await this.prisma.vault.findMany({
       where,
       include: {
-        milestones: true,
+        milestones: {
+          include: { ledgerEntries: true },
+        },
+        ledgerEntries: true,
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
       },
@@ -144,8 +147,14 @@ export class VaultsService {
         where: { id },
         include: {
           milestones: {
-            include: { submission: true, verification: true, review: true },
+            include: { 
+              submission: true, 
+              verification: true, 
+              review: true,
+              ledgerEntries: true,
+            },
           },
+          ledgerEntries: true,
           client: { select: { id: true, name: true, email: true } },
           freelancer: { select: { id: true, name: true, email: true } },
         },
@@ -354,6 +363,10 @@ export class VaultsService {
   }
 
   private formatVault(vault: any) {
+    const paidAmount = vault.ledgerEntries
+      ?.filter((le: any) => le.type === LedgerEntryType.RELEASE && le.status === TransactionStatus.CONFIRMED)
+      .reduce((sum: number, le: any) => sum + le.amount, 0) || 0;
+
     return {
       id: vault.id,
       title: vault.title,
@@ -361,6 +374,9 @@ export class VaultsService {
       type: vault.type,
       status: vault.status,
       totalAmount: vault.totalAmount,
+      paidAmount,
+      isFrozen: vault.isFrozen,
+      frozenReason: vault.frozenReason,
       clientId: vault.clientId,
       clientName: vault.client?.name,
       freelancerId: vault.freelancerId,
@@ -372,6 +388,9 @@ export class VaultsService {
   }
 
   private formatMilestone(milestone: any) {
+    const releaseEntry = milestone.ledgerEntries?.find((le: any) => le.type === LedgerEntryType.RELEASE);
+    const refundEntry = milestone.ledgerEntries?.find((le: any) => le.type === LedgerEntryType.REFUND);
+
     return {
       id: milestone.id,
       title: milestone.title,
@@ -385,6 +404,8 @@ export class VaultsService {
       submission: milestone.submission,
       verification: milestone.verification,
       review: milestone.review,
+      releaseStatus: releaseEntry ? releaseEntry.status : "NOT_STARTED",
+      refundStatus: refundEntry ? refundEntry.status : null,
     };
   }
 

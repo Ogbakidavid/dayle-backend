@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "VaultStatus" AS ENUM ('DRAFT', 'AWAITING_FUNDING', 'INVITED', 'FUNDED_UNASSIGNED', 'FUNDED_ASSIGNED', 'ACTIVE', 'IN_REVIEW', 'COMPLETED', 'CANCELLED', 'PAUSED');
+CREATE TYPE "VaultStatus" AS ENUM ('DRAFT', 'AWAITING_FUNDING', 'INVITED', 'FUNDED_UNASSIGNED', 'FUNDED_ASSIGNED', 'ACTIVE', 'IN_REVIEW', 'CLOSED', 'CANCELLED', 'PAUSED', 'DISPUTED');
 
 -- CreateEnum
 CREATE TYPE "MilestoneStatus" AS ENUM ('PENDING', 'SUBMITTED', 'AWAITING_APPROVAL', 'VERIFIED', 'REVISION_REQUESTED', 'REJECTED', 'DISPUTED');
@@ -35,23 +35,38 @@ CREATE TYPE "LedgerEntryType" AS ENUM ('DEPOSIT', 'LOCK', 'RELEASE', 'REFUND', '
 CREATE TYPE "DisputeType" AS ENUM ('VERIFICATION_ERROR', 'REQUIREMENT_MISMATCH', 'SCOPE_CHANGE', 'BAD_FAITH', 'FRAUD', 'PROCESS_BREACH', 'SECURITY');
 
 -- CreateEnum
-CREATE TYPE "EvidenceType" AS ENUM ('CLARIFICATION_REQUEST', 'REQUIREMENT_CONFIRMATION', 'FILE_COMMENT', 'DISPUTE_NOTE', 'DISPUTE_OPENED', 'DISPUTE_EVIDENCE', 'DISPUTE_DECISION');
+CREATE TYPE "EvidenceType" AS ENUM ('MESSAGE', 'MESSAGE_SENT', 'REQUIREMENT_ITEM', 'SUBMISSION_DELTA', 'REVIEW_DECISION', 'DISPUTE_EVENT');
 
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "role" "UserRole" NOT NULL DEFAULT 'NONE',
     "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE',
     "kycStatus" "KycStatus" NOT NULL DEFAULT 'NONE',
     "profileImage" TEXT,
     "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+    "twoFaEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "twoFactorSecret" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Wallet" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "privyDid" TEXT NOT NULL,
+    "provider" TEXT NOT NULL DEFAULT 'PRIVY',
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Wallet_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -76,6 +91,8 @@ CREATE TABLE "Session" (
     "userId" TEXT NOT NULL,
     "accessToken" TEXT NOT NULL,
     "refreshToken" TEXT NOT NULL,
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -93,6 +110,8 @@ CREATE TABLE "Vault" (
     "clientId" TEXT NOT NULL,
     "freelancerId" TEXT,
     "escrowRef" TEXT,
+    "isFrozen" BOOLEAN NOT NULL DEFAULT false,
+    "frozenReason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -266,16 +285,33 @@ CREATE TABLE "IdempotencyRecord" (
 );
 
 -- CreateTable
-CREATE TABLE "WebhookEvent" (
+CREATE TABLE "Notification" (
     "id" TEXT NOT NULL,
-    "provider" TEXT NOT NULL,
-    "eventType" TEXT NOT NULL,
-    "payload" JSONB NOT NULL,
-    "processed" BOOLEAN NOT NULL DEFAULT false,
-    "processedAt" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "read" BOOLEAN NOT NULL DEFAULT false,
+    "action" TEXT,
 
-    CONSTRAINT "WebhookEvent_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationPreferences" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "emailEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "telegramConnected" BOOLEAN NOT NULL DEFAULT false,
+    "telegramUsername" TEXT,
+    "telegramChatId" TEXT,
+    "whatsappPhoneVerified" BOOLEAN NOT NULL DEFAULT false,
+    "whatsappPhoneE164" TEXT,
+    "whatsappConfirmCode" TEXT,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationPreferences_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -289,6 +325,15 @@ CREATE INDEX "User_role_idx" ON "User"("role");
 
 -- CreateIndex
 CREATE INDEX "User_kycStatus_idx" ON "User"("kycStatus");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Wallet_userId_key" ON "Wallet"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Wallet_address_key" ON "Wallet"("address");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Wallet_privyDid_key" ON "Wallet"("privyDid");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "KycData_userId_key" ON "KycData"("userId");
@@ -429,16 +474,25 @@ CREATE INDEX "IdempotencyRecord_userId_idx" ON "IdempotencyRecord"("userId");
 CREATE INDEX "IdempotencyRecord_expiresAt_idx" ON "IdempotencyRecord"("expiresAt");
 
 -- CreateIndex
-CREATE INDEX "WebhookEvent_provider_idx" ON "WebhookEvent"("provider");
+CREATE INDEX "Notification_userId_idx" ON "Notification"("userId");
 
 -- CreateIndex
-CREATE INDEX "WebhookEvent_processed_idx" ON "WebhookEvent"("processed");
+CREATE INDEX "Notification_read_idx" ON "Notification"("read");
 
 -- CreateIndex
-CREATE INDEX "WebhookEvent_createdAt_idx" ON "WebhookEvent"("createdAt");
+CREATE INDEX "Notification_timestamp_idx" ON "Notification"("timestamp");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationPreferences_userId_key" ON "NotificationPreferences"("userId");
+
+-- AddForeignKey
+ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "KycData" ADD CONSTRAINT "KycData_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Vault" ADD CONSTRAINT "Vault_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -493,3 +547,9 @@ ALTER TABLE "Invite" ADD CONSTRAINT "Invite_vaultId_fkey" FOREIGN KEY ("vaultId"
 
 -- AddForeignKey
 ALTER TABLE "Invite" ADD CONSTRAINT "Invite_invitedBy_fkey" FOREIGN KEY ("invitedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationPreferences" ADD CONSTRAINT "NotificationPreferences_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
