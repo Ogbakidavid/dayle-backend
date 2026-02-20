@@ -32,7 +32,8 @@ export class VaultsService {
     private paymentRouter: PaymentRouter,
   ) {}
 
-  async create(dto: CreateVaultDto, userId: string) {
+  async create(dto: CreateVaultDto, userId: string, role: string) {
+    const prisma = this.prisma;
     const milestoneSum = dto.milestones.reduce((sum, m) => sum + m.amount, 0);
     if (Math.abs(dto.totalAmount - milestoneSum) > 0.01) {
       throw new BadRequestException({
@@ -42,13 +43,13 @@ export class VaultsService {
     }
 
     if (dto.idempotencyKey) {
-      const existing = await this.prisma.idempotencyRecord.findUnique({
+      const existing = await prisma.idempotencyRecord.findUnique({
         where: { key: dto.idempotencyKey },
       });
       if (existing) return existing.responseBody;
     }
 
-    const vault = await this.prisma.vault.create({
+    const vault = await prisma.vault.create({
       data: {
         title: dto.title,
         description: dto.description,
@@ -77,7 +78,7 @@ export class VaultsService {
     });
 
     if (dto.idempotencyKey) {
-      await this.prisma.idempotencyRecord.create({
+      await prisma.idempotencyRecord.create({
         data: {
           key: dto.idempotencyKey,
           userId,
@@ -107,12 +108,13 @@ export class VaultsService {
 
 
   async list(userId: string, role: UserRole) {
+    const prisma = this.prisma;
     const cacheKey = `vaults:list:${role}:${userId}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
 
     const where = role === UserRole.CLIENT ? { clientId: userId } : { freelancerId: userId };
-    const vaults = await this.prisma.vault.findMany({
+    const vaults = await prisma.vault.findMany({
       where,
       include: {
         milestones: {
@@ -135,7 +137,8 @@ export class VaultsService {
   }
 
 
-  async getById(id: string, userId: string) {
+  async getById(id: string, userId: string, role: string) {
+    const prisma = this.prisma;
     const cacheKey = `vaults:detail:${id}`;
     const cached = await this.redis.get(cacheKey);
     let vaultResult: any;
@@ -143,7 +146,7 @@ export class VaultsService {
     if (cached) {
       vaultResult = JSON.parse(cached);
     } else {
-      const vault = await this.prisma.vault.findUnique({
+      const vault = await prisma.vault.findUnique({
         where: { id },
         include: {
           milestones: {
@@ -176,8 +179,9 @@ export class VaultsService {
   }
 
 
-  async fund(id: string, dto: FundVaultDto, userId: string) {
-    const vault = await this.prisma.vault.findUnique({
+  async fund(id: string, dto: FundVaultDto, userId: string, role: string) {
+    const prisma = this.prisma;
+    const vault = await prisma.vault.findUnique({
       where: { id },
     });
 
@@ -194,7 +198,7 @@ export class VaultsService {
     }
 
     // Logic for funding (ledger entry, collection voucher)
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Create ledger entry in PENDING status
       const providerRef = `vault_fund_${id}_${Date.now()}`;
       
@@ -227,8 +231,9 @@ export class VaultsService {
     return result;
   }
 
-  async releaseMilestone(vaultId: string, dto: ReleaseMilestoneDto, userId: string) {
-    const existing = await this.prisma.idempotencyRecord.findUnique({ where: { key: dto.idempotencyKey } });
+  async releaseMilestone(vaultId: string, dto: ReleaseMilestoneDto, userId: string, role: string) {
+    const prisma = this.prisma;
+    const existing = await prisma.idempotencyRecord.findUnique({ where: { key: dto.idempotencyKey } });
     if (existing) return existing.responseBody;
 
     const vault = await this.prisma.vault.findUnique({
@@ -255,7 +260,7 @@ export class VaultsService {
       throw new BadRequestException({ code: "INVALID_STATE_TRANSITION", message: canRelease.reason });
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const updatedMilestone = await tx.milestone.update({
         where: { id: dto.milestoneId },
         data: { status: MilestoneStatus.VERIFIED },
@@ -283,9 +288,10 @@ export class VaultsService {
     return result;
   }
 
-  async refund(vaultId: string, dto: RefundMilestoneDto, userId: string) {
+  async refund(vaultId: string, dto: RefundMilestoneDto, userId: string, role: string) {
+    const prisma = this.prisma;
     // Check idempotency
-    const existing = await this.prisma.idempotencyRecord.findUnique({ where: { key: dto.idempotencyKey } });
+    const existing = await prisma.idempotencyRecord.findUnique({ where: { key: dto.idempotencyKey } });
     if (existing) return existing.responseBody;
 
     const vault = await this.prisma.vault.findUnique({
@@ -312,7 +318,7 @@ export class VaultsService {
       });
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Create refund ledger entry
       const ledgerEntry = await tx.ledgerEntry.create({
         data: {
@@ -348,12 +354,13 @@ export class VaultsService {
     return result;
   }
 
-  async updateStatus(id: string, dto: UpdateVaultStatusDto, userId: string) {
-    const vault = await this.prisma.vault.findUnique({ where: { id } });
+  async updateStatus(id: string, dto: UpdateVaultStatusDto, userId: string, role: string) {
+    const prisma = this.prisma;
+    const vault = await prisma.vault.findUnique({ where: { id } });
     if (!vault) throw new NotFoundException({ code: "VAULT_NOT_FOUND", message: "Vault not found" });
     if (vault.clientId !== userId) throw new ForbiddenException({ code: "UNAUTHORIZED", message: "Not authorized" });
 
-    const updatedVault = await this.prisma.vault.update({
+    const updatedVault = await prisma.vault.update({
       where: { id },
       data: { status: dto.status as any },
     });

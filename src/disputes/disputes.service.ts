@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+
 import { CreateDisputeDto } from "./dto/create-dispute.dto";
 import { ResolveDisputeDto, DisputeResolutionOutcome } from "./dto/resolve-dispute.dto";
 import { DisputeStatus, UserRole, VaultStatus, LedgerEntryType, TransactionStatus, MilestoneStatus } from "../domain/enums";
@@ -9,7 +10,8 @@ export class DisputesService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, role: UserRole, dto: CreateDisputeDto) {
-    const vault = await this.prisma.vault.findUnique({
+    const prisma = this.prisma;
+    const vault = await prisma.vault.findUnique({
       where: { id: dto.vaultId },
     });
 
@@ -18,7 +20,7 @@ export class DisputesService {
       throw new ForbiddenException("Not authorized");
     }
 
-    const dispute = await this.prisma.$transaction(async (tx) => {
+    const dispute = await prisma.$transaction(async (tx) => {
       // 1. Update Vault Status
       await tx.vault.update({
         where: { id: dto.vaultId },
@@ -58,7 +60,8 @@ export class DisputesService {
     return dispute;
   }
 
-  async list(userId: string, status?: DisputeStatus, vaultId?: string, limit: number = 50, offset: number = 0) {
+  async list(userId: string, role: UserRole, status?: DisputeStatus, vaultId?: string, limit: number = 50, offset: number = 0) {
+    const prisma = this.prisma;
     const where: any = {
       vault: {
         OR: [{ clientId: userId }, { freelancerId: userId }],
@@ -68,20 +71,21 @@ export class DisputesService {
     if (vaultId) where.vaultId = vaultId;
 
     const [disputes, total] = await Promise.all([
-      this.prisma.dispute.findMany({
+      prisma.dispute.findMany({
         where,
         take: +limit,
         skip: +offset,
         orderBy: { createdAt: "desc" },
       }),
-      this.prisma.dispute.count({ where }),
+      prisma.dispute.count({ where }),
     ]);
 
     return { disputes, total, limit: +limit, offset: +offset };
   }
 
   async getById(id: string, userId: string, role?: UserRole) {
-    const dispute = await this.prisma.dispute.findUnique({
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
       where: { id },
       include: { events: true, vault: true, milestone: true },
     });
@@ -99,8 +103,9 @@ export class DisputesService {
     return dispute;
   }
 
-  async resolve(id: string, adminId: string, dto: ResolveDisputeDto) {
-    const dispute = await this.prisma.dispute.findUnique({
+  async resolve(id: string, adminId: string, role: string, dto: ResolveDisputeDto) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
       where: { id },
       include: { vault: true, milestone: true },
     });
@@ -109,7 +114,7 @@ export class DisputesService {
 
     // Only Admins can resolve
     // We assume the controller check the role, but extra safety here
-    const admin = await this.prisma.user.findUnique({ where: { id: adminId } });
+    const admin = await prisma.user.findUnique({ where: { id: adminId } });
     if (!admin || admin.role !== UserRole.ADMIN) {
       throw new ForbiddenException("Only admins can resolve disputes");
     }
@@ -121,7 +126,7 @@ export class DisputesService {
     const { outcome, splitAmount, notes } = dto;
     const milestoneAmount = dispute.milestone.amount;
 
-    const resolution = await this.prisma.$transaction(async (tx) => {
+    const resolution = await prisma.$transaction(async (tx) => {
       // 1. Create Ledger Entries based on outcome
       if (outcome === DisputeResolutionOutcome.RELEASE) {
         await tx.ledgerEntry.create({

@@ -16,8 +16,9 @@ export class MilestonesController {
     @Param("id") id: string,
     @Body() dto: SubmitMilestoneDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.milestonesService.submit(id, dto, userId);
+    return this.milestonesService.submit(id, dto, userId, role);
   }
 
   @Post(":id/verify")
@@ -31,8 +32,9 @@ export class MilestonesController {
     @Param("id") id: string,
     @Body() dto: ReviewMilestoneDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.milestonesService.review(id, dto, userId);
+    return this.milestonesService.review(id, dto, userId, role);
   }
 
   @Get(":id/evidence")

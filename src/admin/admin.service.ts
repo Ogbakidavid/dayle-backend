@@ -7,27 +7,26 @@ import { ResolveDisputeDto } from "./dto/resolve-dispute.dto";
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
-  async getStats() {
-    const [totalUsers, activeVaults, pendingDisputes, totalVolume] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.vault.count({
-        where: { status: VaultStatus.ACTIVE },
-      }),
-      this.prisma.dispute.count({
-        where: { status: DisputeStatus.OPEN },
-      }),
-      this.prisma.ledgerEntry.aggregate({
-        _sum: { amount: true },
-        where: { type: "RELEASE", status: "CONFIRMED" },
-      }),
-    ]);
+  async getStats(user: any) {
+    const prisma = this.prisma;
+    const totalUsers = await prisma.user.count();
+    const activeVaults = await prisma.vault.count({
+      where: { status: VaultStatus.ACTIVE },
+    });
+    const pendingDisputes = await prisma.dispute.count({
+      where: { status: DisputeStatus.OPEN },
+    });
+    const totalVolume = await prisma.ledgerEntry.aggregate({
+      _sum: { amount: true },
+      where: { type: "RELEASE", status: "CONFIRMED" },
+    });
 
     // Calculate Volume Trends (Last 6 months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
     sixMonthsAgo.setDate(1); // Start of month
 
-    const recentVolumes = await this.prisma.ledgerEntry.findMany({
+    const recentVolumes = await prisma.ledgerEntry.findMany({
       where: {
         type: "RELEASE",
         status: "CONFIRMED",
@@ -55,62 +54,48 @@ export class AdminService {
         }
     });
 
-    // Check if we have data, if not use mock for demo purposes (so graph isn't empty on fresh DB)
-    let volumeTrends = Array.from(volumeMap.entries())
+    const volumeTrends = Array.from(volumeMap.entries())
         .map(([month, volume]) => ({ month, volume }))
         .reverse();
-    
-    // Ensure we have at least some data for the UI to look good if empty
-    if (totalVolume._sum.amount === null || totalVolume._sum.amount === 0) {
-        volumeTrends = [
-            { month: "Jan", volume: 45000 },
-            { month: "Feb", volume: 62000 },
-            { month: "Mar", volume: 58000 },
-            { month: "Apr", volume: 75000 },
-            { month: "May", volume: 82000 },
-            { month: "Jun", volume: 95000 },
-        ];
-    }
 
     return {
       totalUsers,
       activeVaults,
-      totalVolume: totalVolume._sum.amount || 0,
+      totalVolume: totalVolume._sum?.amount || 0,
       pendingDisputes,
       volumeTrends,
     };
   }
 
-  async getSystemLogs(limit = 10) {
-    const [users, vaults, disputes, kyc, ledger] = await Promise.all([
-      this.prisma.user.findMany({
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, email: true, createdAt: true },
-      }),
-      this.prisma.vault.findMany({
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, title: true, status: true, totalAmount: true, createdAt: true },
-      }),
-      this.prisma.dispute.findMany({
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, reasonCode: true, createdAt: true },
-      }),
-      this.prisma.user.findMany({
-        where: { kycStatus: 'VERIFIED' },
-        take: limit,
-        orderBy: { updatedAt: 'desc' }, // Approximate
-        select: { id: true, email: true, updatedAt: true },
-      }),
-      this.prisma.ledgerEntry.findMany({
-          take: limit,
-          where: { status: 'CONFIRMED' },
-          orderBy: { createdAt: 'desc' },
-          select: { id: true, type: true, amount: true, createdAt: true }
-      })
-    ]);
+  async getSystemLogs(user: any, limit = 10) {
+    const prisma = this.prisma;
+    const users = await prisma.user.findMany({
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, email: true, createdAt: true },
+    });
+    const vaults = await prisma.vault.findMany({
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, title: true, status: true, totalAmount: true, createdAt: true },
+    });
+    const disputes = await prisma.dispute.findMany({
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, reasonCode: true, createdAt: true },
+    });
+    const kyc = await prisma.user.findMany({
+      where: { kycStatus: 'VERIFIED' },
+      take: limit,
+      orderBy: { updatedAt: 'desc' }, // Approximate
+      select: { id: true, email: true, updatedAt: true },
+    });
+    const ledger = await prisma.ledgerEntry.findMany({
+      take: limit,
+      where: { status: 'CONFIRMED' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, type: true, amount: true, createdAt: true }
+    });
 
     const logs: any[] = [];
 
@@ -159,8 +144,9 @@ export class AdminService {
         .slice(0, limit);
   }
 
-  async getUsers() {
-    return this.prisma.user.findMany({
+  async getUsers(user: any) {
+    const prisma = this.prisma;
+    return prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -175,8 +161,9 @@ export class AdminService {
     });
   }
 
-  async getVaults() {
-    return this.prisma.vault.findMany({
+  async getVaults(user: any) {
+    const prisma = this.prisma;
+    return prisma.vault.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         client: { select: { name: true } },
@@ -185,8 +172,9 @@ export class AdminService {
     });
   }
 
-  async getDisputes() {
-    return this.prisma.dispute.findMany({
+  async getDisputes(user: any) {
+    const prisma = this.prisma;
+    return prisma.dispute.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         vault: { select: { title: true } },
@@ -194,8 +182,9 @@ export class AdminService {
     });
   }
 
-  async handleKyc(userId: string, status: "VERIFIED" | "REJECTED", reason?: string) {
-    return this.prisma.user.update({
+  async handleKyc(admin: any, userId: string, status: "VERIFIED" | "REJECTED", reason?: string) {
+    const prisma = this.prisma;
+    return prisma.user.update({
       where: { id: userId },
       data: {
         kycStatus: status,
@@ -209,8 +198,9 @@ export class AdminService {
     });
   }
 
-  async getLedger() {
-    return this.prisma.ledgerEntry.findMany({
+  async getLedger(user: any) {
+    const prisma = this.prisma;
+    return prisma.ledgerEntry.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { name: true, email: true } },
@@ -220,8 +210,9 @@ export class AdminService {
     });
   }
 
-  async resolveDispute(id: string, dto: ResolveDisputeDto) {
-    const dispute = await this.prisma.dispute.findUnique({
+  async resolveDispute(adminId: string, role: string, id: string, dto: ResolveDisputeDto) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
       where: { id },
       include: { vault: true },
     });
@@ -230,7 +221,7 @@ export class AdminService {
       throw new Error("Dispute not found");
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       // 1. Update Dispute
       const updatedDispute = await tx.dispute.update({
         where: { id },

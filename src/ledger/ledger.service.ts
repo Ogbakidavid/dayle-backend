@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+
 import { LedgerEntryType, TransactionStatus, KycStatus } from "../domain/enums";
 import { WithdrawDto } from "./dto/withdraw.dto";
 import { PaymentRouter } from "../common/services/payment-router.service";
@@ -13,8 +14,9 @@ export class LedgerService {
     private configService: ConfigService,
   ) {}
 
-  async getBalance(userId: string) {
-    const entries = await this.prisma.ledgerEntry.findMany({
+  async getBalance(userId: string, role: string) {
+    const prisma = this.prisma;
+    const entries = await prisma.ledgerEntry.findMany({
       where: {
         userId,
         status: TransactionStatus.CONFIRMED,
@@ -23,7 +25,7 @@ export class LedgerService {
 
     const available = entries.reduce((sum, entry) => sum + entry.amount, 0);
 
-    const pendingEntries = await this.prisma.ledgerEntry.findMany({
+    const pendingEntries = await prisma.ledgerEntry.findMany({
       where: {
         userId,
         status: TransactionStatus.PENDING,
@@ -41,21 +43,23 @@ export class LedgerService {
 
   async getTransactions(
     userId: string,
+    role: string,
     limit: number = 50,
     offset: number = 0,
     type?: LedgerEntryType,
   ) {
+    const prisma = this.prisma;
     const where: any = { userId };
     if (type) where.type = type;
 
     const [transactions, total] = await Promise.all([
-      this.prisma.ledgerEntry.findMany({
+      prisma.ledgerEntry.findMany({
         where,
         take: +limit,
         skip: +offset,
         orderBy: { createdAt: "desc" },
       }),
-      this.prisma.ledgerEntry.count({ where }),
+      prisma.ledgerEntry.count({ where }),
     ]);
 
     return {
@@ -66,9 +70,10 @@ export class LedgerService {
     };
   }
 
-  async withdraw(userId: string, dto: WithdrawDto) {
+  async withdraw(userId: string, role: string, dto: WithdrawDto) {
+    const prisma = this.prisma;
     // 1. Check KYC status
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.kycStatus !== KycStatus.VERIFIED) {
       throw new ForbiddenException({
         code: "KYC_REQUIRED",
@@ -77,13 +82,13 @@ export class LedgerService {
     }
 
     // 2. Check Idempotency
-    const existing = await this.prisma.idempotencyRecord.findUnique({
+    const existing = await prisma.idempotencyRecord.findUnique({
       where: { key: dto.idempotencyKey },
     });
     if (existing) return existing.responseBody;
 
     // 3. Check Balance
-    const balance = await this.getBalance(userId);
+    const balance = await this.getBalance(userId, role);
     if (balance.available < dto.amount) {
       throw new BadRequestException({
         code: "INSUFFICIENT_FUNDS",
@@ -92,7 +97,7 @@ export class LedgerService {
     }
 
     // 4. Create Withdrawal Record (LedgerEntry)
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const providerRef = `withdraw_${userId}_${Date.now()}`;
       
       const entry = await tx.ledgerEntry.create({

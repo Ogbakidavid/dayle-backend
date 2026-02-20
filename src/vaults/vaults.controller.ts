@@ -15,8 +15,8 @@ export class VaultsController {
 
   @Post()
   @Roles(UserRole.CLIENT)
-  async create(@Body() dto: CreateVaultDto, @User("id") userId: string) {
-    return this.vaultsService.create(dto, userId);
+  async create(@Body() dto: CreateVaultDto, @User("id") userId: string, @User("role") role: UserRole) {
+    return this.vaultsService.create(dto, userId, role);
   }
 
   @Get()
@@ -25,8 +25,8 @@ export class VaultsController {
   }
 
   @Get(":id")
-  async getById(@Param("id") id: string, @User("id") userId: string) {
-    return this.vaultsService.getById(id, userId);
+  async getById(@Param("id") id: string, @User("id") userId: string, @User("role") role: UserRole) {
+    return this.vaultsService.getById(id, userId, role);
   }
 
   @Post(":id/fund")
@@ -35,8 +35,9 @@ export class VaultsController {
     @Param("id") id: string,
     @Body() dto: FundVaultDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.vaultsService.fund(id, dto, userId);
+    return this.vaultsService.fund(id, dto, userId, role);
   }
 
   @Post(":id/release-milestone")
@@ -45,8 +46,9 @@ export class VaultsController {
     @Param("id") vaultId: string,
     @Body() dto: ReleaseMilestoneDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.vaultsService.releaseMilestone(vaultId, dto, userId);
+    return this.vaultsService.releaseMilestone(vaultId, dto, userId, role);
   }
 
   @Post(":id/refund")
@@ -55,8 +57,9 @@ export class VaultsController {
     @Param("id") vaultId: string,
     @Body() dto: RefundMilestoneDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.vaultsService.refund(vaultId, dto, userId);
+    return this.vaultsService.refund(vaultId, dto, userId, role);
   }
 
   @Patch(":id/status")
@@ -65,7 +68,8 @@ export class VaultsController {
     @Param("id") id: string,
     @Body() dto: UpdateVaultStatusDto,
     @User("id") userId: string,
+    @User("role") role: UserRole,
   ) {
-    return this.vaultsService.updateStatus(id, dto, userId);
+    return this.vaultsService.updateStatus(id, dto, userId, role);
   }
 }

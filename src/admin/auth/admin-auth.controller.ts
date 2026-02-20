@@ -1,12 +1,15 @@
-import { Controller, Post, Body, UnauthorizedException, Res } from '@nestjs/common';
+import { Controller, Post, Body, UnauthorizedException, Res, Get, UseGuards, Req } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
+import { Public } from '../../common/decorators/public.decorator';
 import type { Response } from 'express';
 
 @Controller('admin/auth')
 export class AdminAuthController {
   constructor(private authService: AdminAuthService) {}
 
+  @Public()
   @Post('login')
   async login(@Body() dto: AdminLoginDto, @Res({ passthrough: true }) response: Response) {
      const admin = await this.authService.validateAdmin(dto.email, dto.password);
@@ -24,5 +27,17 @@ export class AdminAuthController {
      });
 
      return { access_token, admin };
+  }
+
+  @Post('logout')
+  async logout(@Res({ passthrough: true }) response: Response) {
+    response.clearCookie("admin_access_token");
+    return { success: true };
+  }
+
+  @Get('me')
+  @UseGuards(AuthGuard('admin-jwt'))
+  async getMe(@Req() req: any) {
+    return req.user;
   }
 }

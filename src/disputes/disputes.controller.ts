@@ -17,12 +17,13 @@ export class DisputesController {
   @Get()
   async list(
     @User("id") userId: string,
+    @User("role") role: UserRole,
     @Query("status") status?: DisputeStatus,
     @Query("vaultId") vaultId?: string,
     @Query("limit") limit?: number,
     @Query("offset") offset?: number,
   ) {
-    return this.disputesService.list(userId, status, vaultId, limit, offset);
+    return this.disputesService.list(userId, role, status, vaultId, limit, offset);
   }
 
   @Get(":id")
@@ -34,19 +35,21 @@ export class DisputesController {
   async listForVault(
     @Param("vaultId") vaultId: string,
     @User("id") userId: string,
+    @User("role") role: UserRole,
     @Query("status") status?: DisputeStatus,
     @Query("limit") limit?: number,
     @Query("offset") offset?: number,
   ) {
-    return this.disputesService.list(userId, status, vaultId, limit, offset);
+    return this.disputesService.list(userId, role, status, vaultId, limit, offset);
   }
 
   @Post(":id/resolve")
   async resolve(
     @Param("id") id: string,
     @User("id") adminId: string,
+    @User("role") role: UserRole,
     @Body() dto: ResolveDisputeDto,
   ) {
-    return this.disputesService.resolve(id, adminId, dto);
+    return this.disputesService.resolve(id, adminId, role, dto);
   }
 }

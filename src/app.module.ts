@@ -1,7 +1,8 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { ClsModule } from "nestjs-cls";
 import { PrismaModule } from "./prisma/prisma.module";
 import { AuthModule } from "./auth/auth.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
@@ -24,10 +25,14 @@ import { RedisModule } from "./common/redis/redis.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { ServicesModule } from "./common/services/services.module";
 import { AuditModule } from "./audit/audit.module";
-
+import { RlsInterceptor } from "./common/interceptors/rls.interceptor";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: true },
+    }),
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
@@ -68,6 +73,10 @@ import { AuditModule } from "./audit/audit.module";
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RlsInterceptor,
     },
   ],
 })

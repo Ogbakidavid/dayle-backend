@@ -10,23 +10,24 @@ export class LedgerController {
   constructor(private readonly ledgerService: LedgerService) {}
 
   @Get("balance")
-  async getBalance(@User("id") userId: string) {
-    return this.ledgerService.getBalance(userId);
+  async getBalance(@User("id") userId: string, @User("role") role: UserRole) {
+    return this.ledgerService.getBalance(userId, role);
   }
 
   @Get("transactions")
   async getTransactions(
     @User("id") userId: string,
+    @User("role") role: UserRole,
     @Query("limit") limit?: number,
     @Query("offset") offset?: number,
     @Query("type") type?: LedgerEntryType,
   ) {
-    return this.ledgerService.getTransactions(userId, limit, offset, type);
+    return this.ledgerService.getTransactions(userId, role, limit, offset, type);
   }
 
   @Post("withdraw")
   @Roles(UserRole.FREELANCER)
-  async withdraw(@User("id") userId: string, @Body() dto: WithdrawDto) {
-    return this.ledgerService.withdraw(userId, dto);
+  async withdraw(@User("id") userId: string, @User("role") role: UserRole, @Body() dto: WithdrawDto) {
+    return this.ledgerService.withdraw(userId, role, dto);
   }
 }

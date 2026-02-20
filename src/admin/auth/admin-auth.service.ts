@@ -26,7 +26,7 @@ export class AdminAuthService {
     const payload = { 
         sub: admin.id, 
         email: admin.email, 
-        role: 'admin',
+        role: 'ADMIN',
         permissions: admin.permissions
     };
     return {

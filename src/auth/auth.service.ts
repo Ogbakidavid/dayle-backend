@@ -26,51 +26,61 @@ export class AuthService {
       throw new UnauthorizedException("Invalid auth token");
     }
 
-    const { userId: did } = verifiedClaims;
+    const claims = verifiedClaims as any;
+    const privyDid = claims.user_id || claims.userId || claims.sub;
+    console.log('[privyLogin] Step 1: Token verified. DID:', privyDid, '| All claim keys:', Object.keys(claims));
     
-    // Fetch full user details from Privy to get email/name if available in the token verification response doesn't have it all
-    // verifiedClaims usually contains minimal info. Let's fetch the full user.
-    const privyUser = await this.privyService.getUser(did);
-    // Extract email from various possible locations in Privy user object
-    let email = privyUser.email ? privyUser.email.address : null;
+    if (!privyDid) {
+      throw new UnauthorizedException("Could not extract user ID from Privy token");
+    }
+    
+    // Fetch full user details from Privy
+    const privyUser = await this.privyService.getUser(privyDid);
+    // REST API returns snake_case, old SDK returned camelCase — handle both
+    const linkedAccounts: any[] = (privyUser as any).linked_accounts || (privyUser as any).linkedAccounts || [];
+    console.log('[privyLogin] Step 2: Got Privy user. linked_accounts count:', linkedAccounts.length, '| Full user:', JSON.stringify(privyUser));
+    
+    // Extract email — check all possible locations
+    let email: string | null = null;
     let name = "";
 
+    // 1. Top-level email field (REST API sometimes returns this directly)
+    if ((privyUser as any).email) {
+      const emailField = (privyUser as any).email;
+      email = typeof emailField === "string" ? emailField : emailField.address || null;
+    }
+
+    // 2. Search linked accounts
     if (!email) {
-      if ((privyUser as any).google?.email) {
-        email = (privyUser as any).google.email;
-        name = (privyUser as any).google.name;
-      } else if ((privyUser as any).github?.email) {
-        email = (privyUser as any).github.email;
-        name = (privyUser as any).github.name;
-      } else if ((privyUser as any).apple?.email) {
-        email = (privyUser as any).apple.email;
-      } else if (privyUser.linkedAccounts) {
-        const googleAccount = privyUser.linkedAccounts.find(
-          (acc) => acc.type === "google_oauth",
-        );
-        const githubAccount = privyUser.linkedAccounts.find(
-          (acc) => acc.type === "github_oauth",
-        );
-        
-        if (googleAccount) {
-            email = (googleAccount as any).email;
-            name = (googleAccount as any).name;
-        } else if (githubAccount) {
-            email = (githubAccount as any).email;
-            name = (githubAccount as any).name;
-        }
+      const emailAccount = linkedAccounts.find((acc: any) => acc.type === "email");
+      const googleAccount = linkedAccounts.find((acc: any) => acc.type === "google_oauth");
+      const githubAccount = linkedAccounts.find((acc: any) => acc.type === "github_oauth");
+      const appleAccount = linkedAccounts.find((acc: any) => acc.type === "apple_oauth");
+
+      if (emailAccount) {
+        email = emailAccount.address || emailAccount.email || null;
+      } else if (googleAccount) {
+        email = googleAccount.email || null;
+        name = googleAccount.name || "";
+      } else if (githubAccount) {
+        email = githubAccount.email || null;
+        name = githubAccount.name || "";
+      } else if (appleAccount) {
+        email = appleAccount.email || null;
       }
     }
 
     if (!email) {
-      console.error("Privy User missing email:", JSON.stringify(privyUser));
-      throw new BadRequestException("Email is required from social login");
+      console.error('Privy User missing email. Full object:', JSON.stringify(privyUser));
+      throw new BadRequestException('Email is required from social login');
     }
 
     // Fallback for name
     if (!name) {
-        name = email.split("@")[0];
+      name = email.split('@')[0];
     }
+    
+    console.log('[privyLogin] Step 3: Email resolved:', email);
 
     // Check for existing user by email or wallet DID
     let user = await this.prisma.user.findUnique({
@@ -79,94 +89,93 @@ export class AuthService {
     });
 
     if (!user) {
-        // If not found by email, try finding by wallet DID
-        const wallet = await this.prisma.wallet.findFirst({
-            where: { privyDid: did },
-            include: { user: true }
-        });
-        if (wallet && wallet.user) {
-            user = wallet.user as any; 
-        }
+      // If not found by email, try finding by wallet DID
+      const wallet = await this.prisma.wallet.findFirst({
+        where: { privyDid: privyDid },
+        include: { user: true }
+      });
+      if (wallet && wallet.user) {
+        user = wallet.user as any;
+      }
     }
 
     if (!user) {
       // Validate role if provided
       const userRole = role && Object.values(UserRole).includes(role as UserRole) ? (role as UserRole) : UserRole.NONE;
 
-      // Create new user if not found
-      user = await this.prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
+      console.log('[privyLogin] Step 4: Creating new user...');
+      // Sequential operations — Neon's PgBouncer pooler doesn't support interactive transactions
+      const newUser = await this.prisma.user.create({
+        data: {
+          email,
+          name,
+          role: userRole,
+          emailVerified: true,
+        },
+      });
+
+      // Get the embedded wallet address from Privy
+      const embeddedWallet = linkedAccounts.find(
+        (account: any) =>
+          account.type === 'wallet' && account.walletClientType === 'privy',
+      );
+      const walletAddress = embeddedWallet ? (embeddedWallet as any).address : '';
+
+      if (!walletAddress) {
+        console.warn(`Privy User ${privyDid} has no wallet address during signup.`);
+      }
+
+      // Check if a wallet with this DID already exists (orphaned)
+      const orphanedWallet = await this.prisma.wallet.findUnique({
+        where: { privyDid: privyDid },
+      });
+
+      if (orphanedWallet) {
+        await this.prisma.wallet.update({
+          where: { id: orphanedWallet.id },
           data: {
-            email,
-            name,
-            role: userRole,
-            emailVerified: true,
+            userId: newUser.id,
+            address: walletAddress || orphanedWallet.address,
+            provider: 'PRIVY',
           },
         });
-
-        // Check if Privy user has an embedded wallet
-        const embeddedWallet = privyUser.linkedAccounts.find(
-          (account) =>
-            account.type === "wallet" && account.walletClientType === "privy",
-        );
-        
-        const walletAddress = embeddedWallet ? (embeddedWallet as any).address : "";
-        
-        if (!walletAddress) {
-            console.warn(`Privy User ${did} has no wallet address during signup.`);
-        }
-
-        // Check if a wallet with this DID already exists (orphaned wallet case)
-        const existingWallet = await tx.wallet.findUnique({
-          where: { privyDid: did },
+      } else {
+        await this.prisma.wallet.create({
+          data: {
+            userId: newUser.id,
+            address: walletAddress || `pending_${privyDid}`,
+            privyDid: privyDid,
+            provider: 'PRIVY',
+          },
         });
+      }
 
-        if (existingWallet) {
-             // Link the existing orphaned wallet to the new user
-             await tx.wallet.update({
-               where: { id: existingWallet.id },
-               data: {
-                 userId: newUser.id,
-                 address: walletAddress || existingWallet.address, 
-                 provider: "PRIVY",
-               },
-             });
-        } else {
-             await tx.wallet.create({
-               data: {
-                 userId: newUser.id,
-                 address: walletAddress || `pending_${did}`,
-                 privyDid: did,
-                 provider: "PRIVY",
-               },
-             });
-        }
-
-        return tx.user.findUnique({
-          where: { id: newUser.id },
-          include: { wallet: true },
-        });
+      user = await this.prisma.user.findUnique({
+        where: { id: newUser.id },
+        include: { wallet: true },
       });
     } else if (!user.wallet) {
+      console.log('[privyLogin] Step 4b: User exists but no wallet, linking...');
       // Link existing user to Privy if not linked
-      const existingWallet = await this.prisma.wallet.findFirst({ where: { privyDid: did } });
+      const existingWallet = await this.prisma.wallet.findFirst({ where: { privyDid: privyDid } });
       
       if (!existingWallet) {
-          const embeddedWallet = privyUser.linkedAccounts?.find(
-             (account) => account.type === "wallet" && account.walletClientType === "privy"
-          );
-          const walletAddress = embeddedWallet ? (embeddedWallet as any).address : `pending_${did}`;
+        const linkedAccounts = privyUser.linkedAccounts || [];
+        const embeddedWallet = linkedAccounts.find(
+          (account: any) => account.type === "wallet" && account.walletClientType === "privy"
+        );
+        const walletAddress = embeddedWallet ? (embeddedWallet as any).address : `pending_${privyDid}`;
 
-          await this.prisma.wallet.create({
-            data: {
-              userId: user.id,
-              address: walletAddress,
-              privyDid: did,
-              provider: "PRIVY",
-            },
-          });
+        await this.prisma.wallet.create({
+          data: {
+            userId: user.id,
+            address: walletAddress,
+            privyDid: privyDid,
+            provider: "PRIVY",
+          },
+        });
       } else {
-          console.warn(`Wallet with DID ${did} exists but user ${user.id} has no wallet linked. Linking now if possible.`);
+        console.warn(`Wallet with DID ${privyDid} exists but user ${user.id} has no wallet linked. Linking now if possible.`);
       }
 
       // Refresh user object
@@ -188,6 +197,7 @@ export class AuthService {
       role: user.role,
     };
 
+    console.log('[privyLogin] Step 5: Creating session for user:', user.id);
     const accessTokenJwt = await this.jwtService.signAsync(payload);
     const refreshTokenJwt = await this.jwtService.signAsync(payload, { expiresIn: "30d" });
 
@@ -204,6 +214,7 @@ export class AuthService {
       }
     });
 
+    console.log('[privyLogin] Step 6: Login complete.');
     return {
       user: this.sanitizeUser(user),
       accessToken: accessTokenJwt,

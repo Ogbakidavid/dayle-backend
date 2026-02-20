@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { EvidenceType } from '../domain/enums';
 import { Prisma, EvidenceType as PrismaEvidenceType } from '@prisma/client';
@@ -12,8 +13,9 @@ import { Prisma, EvidenceType as PrismaEvidenceType } from '@prisma/client';
 export class EvidenceService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: string, dto: CreateEvidenceDto) {
-    const vault = await this.prisma.vault.findUnique({
+  async create(userId: string, role: string, dto: CreateEvidenceDto) {
+    const prisma = this.prisma;
+    const vault = await prisma.vault.findUnique({
       where: { id: dto.vaultId },
     });
 
@@ -22,7 +24,7 @@ export class EvidenceService {
       throw new ForbiddenException('Not authorized');
     }
 
-    const evidence = await this.prisma.evidence.create({
+    const evidence = await prisma.evidence.create({
       data: {
         vaultId: dto.vaultId,
         milestoneId: dto.milestoneId,
@@ -43,11 +45,12 @@ export class EvidenceService {
     milestoneId?: string,
     type?: EvidenceType,
   ) {
+    const prisma = this.prisma;
     let effectiveVaultId = vaultId;
 
     // If vaultId is missing but milestoneId is provided, derive vaultId
     if (!effectiveVaultId && milestoneId) {
-      const milestone = await this.prisma.milestone.findUnique({
+      const milestone = await prisma.milestone.findUnique({
         where: { id: milestoneId },
         select: { vaultId: true },
       });
@@ -60,7 +63,7 @@ export class EvidenceService {
       throw new NotFoundException('Vault ID is required or could not be derived');
     }
 
-    const vault = await this.prisma.vault.findUnique({
+    const vault = await prisma.vault.findUnique({
       where: { id: effectiveVaultId },
     });
 
@@ -80,7 +83,7 @@ export class EvidenceService {
       type: (type as unknown as PrismaEvidenceType) || undefined,
     };
 
-    return this.prisma.evidence.findMany({
+    return prisma.evidence.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });

@@ -1,56 +1,57 @@
-import { Controller, Get, Patch, Param, Body, Query } from "@nestjs/common";
+import { Controller, Get, Patch, Param, Body, Query, UseGuards, Req } from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
 import { AdminService } from "./admin.service";
 import { Roles } from "../common/decorators/roles.decorator";
 import { UserRole, DisputeStatus } from "../domain/enums";
 import { ResolveDisputeDto } from "./dto/resolve-dispute.dto";
 
 @Controller("admin")
-@Roles(UserRole.ADMIN)
+@UseGuards(AuthGuard('admin-jwt'))
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get("stats")
-  async getStats() {
-    return this.adminService.getStats();
+  async getStats(@Req() req: any) {
+    return this.adminService.getStats(req.user);
   }
 
   @Get("users")
-  async getUsers() {
-    return this.adminService.getUsers();
+  async getUsers(@Req() req: any) {
+    return this.adminService.getUsers(req.user);
   }
 
   @Get("vaults")
-  async getVaults() {
-    return this.adminService.getVaults();
+  async getVaults(@Req() req: any) {
+    return this.adminService.getVaults(req.user);
   }
 
   @Get("disputes")
-  async getDisputes() {
-    return this.adminService.getDisputes();
+  async getDisputes(@Req() req: any) {
+    return this.adminService.getDisputes(req.user);
   }
 
   @Patch("kyc/:userId/approve")
-  async approveKyc(@Param("userId") userId: string) {
-    return this.adminService.handleKyc(userId, "VERIFIED");
+  async approveKyc(@Req() req: any, @Param("userId") userId: string) {
+    return this.adminService.handleKyc(req.user, userId, "VERIFIED");
   }
 
   @Patch("kyc/:userId/reject")
-  async rejectKyc(@Param("userId") userId: string, @Body("reason") reason: string) {
-    return this.adminService.handleKyc(userId, "REJECTED", reason);
+  async rejectKyc(@Req() req: any, @Param("userId") userId: string, @Body("reason") reason: string) {
+    return this.adminService.handleKyc(req.user, userId, "REJECTED", reason);
   }
 
   @Get("ledger")
-  async getLedger() {
-    return this.adminService.getLedger();
+  async getLedger(@Req() req: any) {
+    return this.adminService.getLedger(req.user);
   }
 
   @Get("logs")
-  async getSystemLogs(@Query("limit") limit?: number) {
-    return this.adminService.getSystemLogs(limit ? Number(limit) : 10);
+  async getSystemLogs(@Req() req: any, @Query("limit") limit?: number) {
+    return this.adminService.getSystemLogs(req.user, limit ? Number(limit) : 10);
   }
 
   @Patch("disputes/:id/resolve")
-  async resolveDispute(@Param("id") id: string, @Body() dto: ResolveDisputeDto) {
-    return this.adminService.resolveDispute(id, dto);
+  async resolveDispute(@Req() req: any, @Param("id") id: string, @Body() dto: ResolveDisputeDto) {
+    return this.adminService.resolveDispute(req.user.id, req.user.role, id, dto);
   }
 }

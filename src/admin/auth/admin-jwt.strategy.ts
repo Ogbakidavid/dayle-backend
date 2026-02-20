@@ -8,14 +8,19 @@ import { ConfigService } from '@nestjs/config';
 export class AdminJwtStrategy extends PassportStrategy(Strategy, 'admin-jwt') {
   constructor(configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (request: any) => {
+          return request?.cookies?.admin_access_token;
+        },
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET') || 'fallback_secret',
     });
   }
 
   async validate(payload: any) {
-    if (payload.role !== 'admin') {
+    if (payload.role !== 'ADMIN') {
       throw new UnauthorizedException();
     }
     return { id: payload.sub, email: payload.email, role: payload.role, permissions: payload.permissions };

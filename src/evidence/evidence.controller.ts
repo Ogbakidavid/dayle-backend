@@ -9,8 +9,8 @@ export class EvidenceController {
   constructor(private readonly evidenceService: EvidenceService) {}
 
   @Post()
-  async create(@User('id') userId: string, @Body() dto: CreateEvidenceDto) {
-    return this.evidenceService.create(userId, dto);
+  async create(@User('id') userId: string, @User('role') role: UserRole, @Body() dto: CreateEvidenceDto) {
+    return this.evidenceService.create(userId, role, dto);
   }
 
   @Get()

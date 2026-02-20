@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+
 import { SubmitMilestoneDto } from "./dto/submit-milestone.dto";
 import { ReviewMilestoneDto } from "./dto/review-milestone.dto";
 import { MilestoneStatus, UserRole } from "../domain/enums";
@@ -20,8 +21,9 @@ export class MilestonesService {
     private evidenceService: EvidenceService,
   ) {}
 
-  async submit(id: string, dto: SubmitMilestoneDto, userId: string) {
-    const milestone = await this.prisma.milestone.findUnique({
+  async submit(id: string, dto: SubmitMilestoneDto, userId: string, role: string) {
+    const prisma = this.prisma;
+    const milestone = await prisma.milestone.findUnique({
       where: { id },
       include: { vault: true },
     });
@@ -55,7 +57,7 @@ export class MilestonesService {
     );
 
     // Create submission
-    const updatedMilestone = await this.prisma.milestone.update({
+    const updatedMilestone = await prisma.milestone.update({
       where: { id },
       data: {
         status: MilestoneStatus.SUBMITTED,
@@ -82,8 +84,9 @@ export class MilestonesService {
     return updatedMilestone;
   }
 
-  async review(id: string, dto: ReviewMilestoneDto, userId: string) {
-    const milestone = await this.prisma.milestone.findUnique({
+  async review(id: string, dto: ReviewMilestoneDto, userId: string, role: string) {
+    const prisma = this.prisma;
+    const milestone = await prisma.milestone.findUnique({
       where: { id },
       include: { vault: true },
     });
@@ -115,7 +118,7 @@ export class MilestonesService {
     const newStatus = StateMachine.mapOutcomeToStatus(dto.outcome);
 
     // Update milestone
-    const updatedMilestone = await this.prisma.milestone.update({
+    const updatedMilestone = await prisma.milestone.update({
       where: { id },
       data: {
         status: newStatus,
@@ -139,8 +142,9 @@ export class MilestonesService {
   }
 
   async getEvidence(milestoneId: string, userId: string, role: UserRole) {
+    const prisma = this.prisma;
     // Check if milestone exists
-    const milestone = await this.prisma.milestone.findUnique({
+    const milestone = await prisma.milestone.findUnique({
       where: { id: milestoneId },
       include: { vault: true },
     });
