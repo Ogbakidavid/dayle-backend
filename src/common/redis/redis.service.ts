@@ -16,14 +16,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.redisClient = new Redis(redisUrl);
+    this.redisClient = new Redis(redisUrl, {
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false, // Prevents hanging operations when disconnected
+    });
 
     this.redisClient.on('connect', () => {
       this.logger.log('Successfully connected to Redis');
     });
 
     this.redisClient.on('error', (err) => {
-      this.logger.error('Redis connection error', err);
+      // Optional: keep logging minimal after first fail to avoid log spam
+      this.logger.error('Redis connection error', err.message);
     });
   }
 
@@ -32,24 +36,47 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async get(key: string): Promise<string | null> {
-    return this.redisClient.get(key);
+    if (this.redisClient.status !== 'ready') return null;
+    try {
+      return await this.redisClient.get(key);
+    } catch (err) {
+      this.logger.warn(`Redis GET failed for key: ${key}`);
+      return null;
+    }
   }
 
-  async set(key: string, value: string, ttl?: number): Promise<'OK'> {
-    if (ttl) {
-      return this.redisClient.set(key, value, 'EX', ttl);
+  async set(key: string, value: string, ttl?: number): Promise<'OK' | null> {
+    if (this.redisClient.status !== 'ready') return null;
+    try {
+      if (ttl) {
+        return await this.redisClient.set(key, value, 'EX', ttl);
+      }
+      return await this.redisClient.set(key, value);
+    } catch (err) {
+      this.logger.warn(`Redis SET failed for key: ${key}`);
+      return null;
     }
-    return this.redisClient.set(key, value);
   }
 
   async del(key: string): Promise<number> {
-    return this.redisClient.del(key);
+    if (this.redisClient.status !== 'ready') return 0;
+    try {
+      return await this.redisClient.del(key);
+    } catch (err) {
+      this.logger.warn(`Redis DEL failed for key: ${key}`);
+      return 0;
+    }
   }
 
   async clearCacheByPattern(pattern: string): Promise<void> {
-    const keys = await this.redisClient.keys(pattern);
-    if (keys.length > 0) {
-      await this.redisClient.del(...keys);
+    if (this.redisClient.status !== 'ready') return;
+    try {
+      const keys = await this.redisClient.keys(pattern);
+      if (keys.length > 0) {
+        await this.redisClient.del(...keys);
+      }
+    } catch (err) {
+      this.logger.warn(`Redis CLEAR failed for pattern: ${pattern}`);
     }
   }
 }

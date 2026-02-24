@@ -23,6 +23,9 @@ import { StateMachine } from "../domain/state-machine";
 import * as crypto from "crypto";
 import { RedisService } from "../common/redis/redis.service";
 import { Prisma } from "@prisma/client";
+import { ethers } from "ethers";
+
+import { BlockchainService } from "../common/services/blockchain.service";
 
 @Injectable()
 export class VaultsService {
@@ -30,6 +33,7 @@ export class VaultsService {
     private prisma: PrismaService,
     private redis: RedisService,
     private paymentRouter: PaymentRouter,
+    private blockchainService: BlockchainService,
   ) {}
 
   async create(dto: CreateVaultDto, userId: string, role: string) {
@@ -49,6 +53,32 @@ export class VaultsService {
       if (existing) return existing.responseBody;
     }
 
+    // Deploy the Web3 Vault using the master relayer (Treasury)
+    let deployedVaultAddress = "";
+    try {
+      // Create a mock freelancer address if none exists, as ethers expects a valid address
+      const freelancerAddress = "0x0000000000000000000000000000000000000000"; 
+      
+      // Assume client wallet is available or fallback to a dummy for testing if necessary. 
+      // Note: A real implementation would look up `userId` in the DB to find their actual wallet address.
+      // For this bridge, the sender is technically the Treasury, but the contract records the client.
+      const client = await prisma.user.findUnique({ where: { id: userId }, include: { wallet: true } });
+      const clientAddress = client?.wallet?.address || "0x0000000000000000000000000000000000000000";
+
+      const milestoneTypes = dto.milestones.map((_, i) => i); // dummy types
+      const milestoneAmounts = dto.milestones.map(m => m.amount.toString());
+      
+      const { vaultAddress } = await this.blockchainService.deployVault(
+        clientAddress,
+        freelancerAddress,
+        milestoneTypes,
+        milestoneAmounts
+      );
+      deployedVaultAddress = vaultAddress;
+    } catch (error) {
+      throw new BadRequestException({ code: "DEPLOYMENT_FAILED", message: "Failed to deploy smart contract vault" });
+    }
+
     const vault = await prisma.vault.create({
       data: {
         title: dto.title,
@@ -57,6 +87,7 @@ export class VaultsService {
         totalAmount: dto.totalAmount,
         clientId: userId,
         status: VaultStatus.DRAFT,
+        vaultAddress: deployedVaultAddress,
         milestones: {
           create: dto.milestones.map((m) => ({
             title: m.title,
@@ -380,6 +411,7 @@ export class VaultsService {
       description: vault.description,
       type: vault.type,
       status: vault.status,
+      vaultAddress: vault.vaultAddress,
       totalAmount: vault.totalAmount,
       paidAmount,
       isFrozen: vault.isFrozen,

@@ -8,7 +8,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ============================================================================
@@ -192,6 +191,8 @@ model KycData {
   address            String
   idDocumentUrl      String
   proofOfAddressUrl  String?
+  idType             String?
+  idNumber           String?
   submittedAt        DateTime @default(now())
   reviewedAt         DateTime?
   rejectionReason    String?
@@ -229,7 +230,7 @@ model Vault {
   totalAmount    Float
   clientId       String
   freelancerId   String?
-  escrowRef      String?     @unique // Blockchain reference (hidden from UI)
+  vaultAddress   String?     @unique // Smart Contract Address
   isFrozen       Boolean     @default(false)
   frozenReason   String?
   createdAt      DateTime    @default(now())

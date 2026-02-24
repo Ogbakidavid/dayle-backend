@@ -95,4 +95,8 @@ export class CreateVaultDto {
   @IsUUID()
   @IsOptional()
   idempotencyKey?: string;
+
+  @IsString()
+  @IsOptional()
+  vaultAddress?: string;
 }

@@ -3,6 +3,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TransactionStatus, LedgerEntryType, VaultStatus } from "../domain/enums";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "crypto";
+import { BlockchainService } from "../common/services/blockchain.service";
 
 @Injectable()
 export class WebhooksService {
@@ -11,6 +12,7 @@ export class WebhooksService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private blockchainService: BlockchainService,
   ) {}
 
   async handlePartnaWebhook(payload: any, signature: string) {
@@ -49,14 +51,31 @@ export class WebhooksService {
     if (type === "collection" && internalStatus === TransactionStatus.CONFIRMED) {
       const vault = await this.prisma.vault.findUnique({
         where: { id: ledgerEntry.vaultId! },
+        include: { client: { include: { wallet: true } } }
       });
 
       if (vault && vault.status === VaultStatus.DRAFT) {
-        await this.prisma.vault.update({
-          where: { id: vault.id },
-          data: { status: vault.freelancerId ? VaultStatus.ACTIVE : VaultStatus.FUNDED_UNASSIGNED },
-        });
-        this.logger.log(`Vault ${vault.id} status updated to ACTIVE/FUNDED_UNASSIGNED`);
+        // Trigger the conversion of the deposited Fiat -> cUSD
+        // and send it to the client's `vault.client.wallet.address` via
+        // an internal liquidity pool or API request to the Ramp provider.
+        this.logger.log(`Triggering Fiat -> cUSD conversion for Vault ${vault.id} to Wallet ${vault.client?.wallet?.address}`);
+        
+        if (vault.client?.wallet?.address) {
+          try {
+            // STEP 1: Backend performs the deposit into the smart contract automatically
+            this.logger.log(`Automatically depositing ${amount} cUSD into Vault Contract ${vault.vaultAddress}`);
+            await this.blockchainService.depositToVault(
+              vault.vaultAddress!,
+              amount
+            );
+
+            // The BlockchainService listener for "Deposited" will catch this and update the vault status to FUNDED.
+          } catch (error) {
+            this.logger.error(`Failed to auto-deposit to vault ${vault.vaultAddress}:`, error);
+          }
+        } else {
+          this.logger.warn(`Cannot fund vault ${vault.id} because the client has no associated wallet address.`);
+        }
       }
     }
   }

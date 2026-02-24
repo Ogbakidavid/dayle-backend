@@ -65,7 +65,7 @@ describe('DisputesService Adjudication', () => {
       notes: 'Work was completed as described',
     };
 
-    await service.resolve('dispute-1', 'admin-1', dto);
+    await service.resolve('dispute-1', 'admin-1', UserRole.ADMIN, dto);
 
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -89,7 +89,7 @@ describe('DisputesService Adjudication', () => {
       notes: 'Freelancer failed to deliver',
     };
 
-    await service.resolve('dispute-1', 'admin-1', dto);
+    await service.resolve('dispute-1', 'admin-1', UserRole.ADMIN, dto);
 
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -110,7 +110,7 @@ describe('DisputesService Adjudication', () => {
       splitAmount: 400,
     };
 
-    await service.resolve('dispute-1', 'admin-1', dto);
+    await service.resolve('dispute-1', 'admin-1', UserRole.ADMIN, dto);
 
     // Release 400 to freelancer
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
@@ -139,6 +139,6 @@ describe('DisputesService Adjudication', () => {
       notes: 'Try to resolve',
     };
 
-    await expect(service.resolve('dispute-1', 'user-1', dto)).rejects.toThrow(ForbiddenException);
+    await expect(service.resolve('dispute-1', 'user-1', UserRole.FREELANCER, dto)).rejects.toThrow(ForbiddenException);
   });
 });

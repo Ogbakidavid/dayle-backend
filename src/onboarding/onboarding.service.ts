@@ -76,6 +76,8 @@ export class OnboardingService {
               address: address,
               idDocumentUrl: idDocumentUrl,
               proofOfAddressUrl: dto.proofOfAddressUrl,
+              idType: dto.idType,
+              idNumber: dto.idNumber,
             },
             update: {
               fullName: fullName,
@@ -83,6 +85,8 @@ export class OnboardingService {
               address: address,
               idDocumentUrl: idDocumentUrl,
               proofOfAddressUrl: dto.proofOfAddressUrl,
+              idType: dto.idType,
+              idNumber: dto.idNumber,
             },
           },
         },
