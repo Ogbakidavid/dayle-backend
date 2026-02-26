@@ -3,7 +3,7 @@ import { VaultsService } from './vaults.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { PaymentRouter } from '../common/services/payment-router.service';
-
+import { BlockchainService } from '../common/services/blockchain.service';
 describe('VaultsService', () => {
   let service: VaultsService;
 
@@ -16,6 +16,10 @@ describe('VaultsService', () => {
   const mockPaymentRouter = {
     initiateOnramp: jest.fn(),
     initiateOfframp: jest.fn(),
+  };
+  const mockBlockchainService = {
+    deployVault: jest.fn(),
+    depositToVault: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -33,6 +37,10 @@ describe('VaultsService', () => {
         {
           provide: PaymentRouter,
           useValue: mockPaymentRouter,
+        },
+        {
+          provide: BlockchainService,
+          useValue: mockBlockchainService,
         },
       ],
     }).compile();

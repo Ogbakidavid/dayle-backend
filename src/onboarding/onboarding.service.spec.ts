@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../prisma/prisma.service';
-
+import { DiditService } from '../common/services/didit.service';
 describe('OnboardingService', () => {
   let service: OnboardingService;
 
@@ -11,6 +11,10 @@ describe('OnboardingService', () => {
         OnboardingService,
         {
           provide: PrismaService,
+          useValue: {},
+        },
+        {
+          provide: DiditService,
           useValue: {},
         },
       ],

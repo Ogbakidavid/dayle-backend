@@ -27,4 +27,15 @@ export class WebhooksController {
     await this.webhooksService.handlePaycrestWebhook(payload, signature);
     return { status: "received" };
   }
+
+  @Public()
+  @Post("didit")
+  @HttpCode(HttpStatus.OK)
+  async diditWebhook(
+    @Body() payload: any,
+    @Headers("x-signature-v2") signature: string,
+  ) {
+    await this.webhooksService.handleDiditWebhook(payload, signature);
+    return { status: "received" };
+  }
 }

@@ -22,4 +22,9 @@ export class OnboardingController {
   async getStatus(@User("id") userId: string) {
     return this.onboardingService.getStatus(userId);
   }
+
+  @Get("didit/session")
+  async getDiditSession(@User("id") userId: string) {
+    return this.onboardingService.getDiditSession(userId);
+  }
 }

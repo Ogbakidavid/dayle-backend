@@ -7,10 +7,14 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SetRoleDto } from "./dto/set-role.dto";
 import { SubmitKycDto } from "./dto/submit-kyc.dto";
 import { UserRole, KycStatus } from "../domain/enums";
+import { DiditService } from "../common/services/didit.service";
 
 @Injectable()
 export class OnboardingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private diditService: DiditService,
+  ) {}
 
   async setRole(userId: string, dto: SetRoleDto) {
     const user = await this.prisma.user.findUnique({
@@ -109,6 +113,35 @@ export class OnboardingService {
       roleSet: user.role !== UserRole.NONE,
       kycVerified: user.kycStatus === KycStatus.VERIFIED,
       emailVerified: user.emailVerified,
+    };
+  }
+
+  async getDiditSession(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    // Usually, the frontend runs on localhost:3000 during dev. 
+    // Ideally this is dynamic, but we can hardcode for testing.
+    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const callbackUrl = `${baseUrl}/client/settings?didit=success`;
+
+    // Securely acquire session from Didit passing the userId as vendor_data
+    const sessionResponse = await this.diditService.createSession(userId, callbackUrl);
+
+    // Update status to pending if they start a session
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { kycStatus: KycStatus.PENDING },
+    });
+
+    return {
+      sessionId: sessionResponse.session_id,
+      url: sessionResponse.verification_url,
     };
   }
 
