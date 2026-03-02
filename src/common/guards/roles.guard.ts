@@ -3,11 +3,11 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
-} from "@nestjs/common";
-import { Reflector } from "@nestjs/core";
-import { ROLES_KEY } from "../decorators/roles.decorator";
-import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
-import { UserRole } from "../../domain/enums";
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { UserRole } from '../../domain/enums';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -30,25 +30,27 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
-    console.log("[RolesGuard] User from request:", user);
-    console.log("[RolesGuard] Required roles:", requiredRoles);
+    console.log('[RolesGuard] User from request:', user);
+    console.log('[RolesGuard] Required roles:', requiredRoles);
 
     if (!user) {
-      console.log("[RolesGuard] Forbidden: No user found");
+      console.log('[RolesGuard] Forbidden: No user found');
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: "User not authenticated",
+        code: 'FORBIDDEN',
+        message: 'User not authenticated',
       });
     }
 
     const hasRole = requiredRoles.includes(user.role);
-    console.log("[RolesGuard] Has role check result:", hasRole);
+    console.log('[RolesGuard] Has role check result:', hasRole);
 
     if (!hasRole) {
-      console.log(`[RolesGuard] Forbidden: User role ${user.role} not in ${requiredRoles}`);
+      console.log(
+        `[RolesGuard] Forbidden: User role ${user.role} not in ${requiredRoles}`,
+      );
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: `This action requires one of the following roles: ${requiredRoles.join(", ")}`,
+        code: 'FORBIDDEN',
+        message: `This action requires one of the following roles: ${requiredRoles.join(', ')}`,
       });
     }
 

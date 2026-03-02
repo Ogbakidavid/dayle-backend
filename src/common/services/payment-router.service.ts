@@ -1,10 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { PartnaService } from "./partna.service";
-import { PaycrestService } from "./paycrest.service";
+import { Injectable, Logger } from '@nestjs/common';
+import { PartnaService } from './partna.service';
+import { PaycrestService } from './paycrest.service';
 
 export enum PaymentProvider {
-  PARTNA = "partna",
-  PAYCREST = "paycrest",
+  PARTNA = 'partna',
+  PAYCREST = 'paycrest',
 }
 
 @Injectable()
@@ -21,8 +21,11 @@ export class PaymentRouter {
    * Partna supports specific African corridors (NGN, GHS, KES)
    * Paycrest covers all others and acts as the primary for the rest.
    */
-  private getPrimaryProvider(currency: string, country?: string): PaymentProvider {
-    const partnaSupported = ["NGN", "GHS", "KES"];
+  private getPrimaryProvider(
+    currency: string,
+    country?: string,
+  ): PaymentProvider {
+    const partnaSupported = ['NGN', 'GHS', 'KES'];
     if (partnaSupported.includes(currency.toUpperCase())) {
       return PaymentProvider.PARTNA;
     }
@@ -37,20 +40,28 @@ export class PaymentRouter {
     currency: string;
     reference: string;
     customerEmail: string;
+    customerFullName?: string;
     country?: string;
   }) {
     const primary = this.getPrimaryProvider(params.currency, params.country);
-    const secondary = primary === PaymentProvider.PARTNA ? PaymentProvider.PAYCREST : PaymentProvider.PARTNA;
+    const secondary =
+      primary === PaymentProvider.PARTNA
+        ? PaymentProvider.PAYCREST
+        : PaymentProvider.PARTNA;
 
     try {
       this.logger.log(`Attempting onramp via primary provider: ${primary}`);
       return await this.callOnramp(primary, params);
     } catch (err) {
-      this.logger.warn(`Primary provider ${primary} failed, attempting failover to ${secondary}. Error: ${err.message}`);
+      this.logger.warn(
+        `Primary provider ${primary} failed, attempting failover to ${secondary}. Error: ${err.message}`,
+      );
       try {
         return await this.callOnramp(secondary, params);
       } catch (failoverErr) {
-        this.logger.error(`Both providers failed for onramp: ${failoverErr.message}`);
+        this.logger.error(
+          `Both providers failed for onramp: ${failoverErr.message}`,
+        );
         throw failoverErr;
       }
     }
@@ -62,18 +73,27 @@ export class PaymentRouter {
         params.amount,
         params.currency,
         params.reference,
-        params.customerEmail
+        params.customerEmail,
+        params.customerFullName,
       );
-      return { provider, paymentUrl: res.pay_url || res.url, providerRef: params.reference };
+      return {
+        provider,
+        paymentUrl: res.pay_url,
+        providerRef: res.data?.id || res.id || params.reference,
+      };
     } else {
       const res = await this.paycrest.createOrder({
         amount: params.amount,
         currency: params.currency,
         customerEmail: params.customerEmail,
         reference: params.reference,
-        type: "onramp",
+        type: 'onramp',
       });
-      return { provider, paymentUrl: res.checkout_url || res.url, providerRef: res.id || params.reference };
+      return {
+        provider,
+        paymentUrl: res.checkout_url || res.url,
+        providerRef: res.id || params.reference,
+      };
     }
   }
 
@@ -92,17 +112,24 @@ export class PaymentRouter {
     customerEmail: string;
   }) {
     const primary = this.getPrimaryProvider(params.currency);
-    const secondary = primary === PaymentProvider.PARTNA ? PaymentProvider.PAYCREST : PaymentProvider.PARTNA;
+    const secondary =
+      primary === PaymentProvider.PARTNA
+        ? PaymentProvider.PAYCREST
+        : PaymentProvider.PARTNA;
 
     try {
       this.logger.log(`Attempting offramp via primary provider: ${primary}`);
       return await this.callOfframp(primary, params);
     } catch (err) {
-      this.logger.warn(`Primary provider ${primary} failed, attempting failover to ${secondary}. Error: ${err.message}`);
+      this.logger.warn(
+        `Primary provider ${primary} failed, attempting failover to ${secondary}. Error: ${err.message}`,
+      );
       try {
         return await this.callOfframp(secondary, params);
       } catch (failoverErr) {
-        this.logger.error(`Both providers failed for offramp: ${failoverErr.message}`);
+        this.logger.error(
+          `Both providers failed for offramp: ${failoverErr.message}`,
+        );
         throw failoverErr;
       }
     }
@@ -114,18 +141,22 @@ export class PaymentRouter {
         params.amount,
         params.currency,
         params.reference,
-        params.bankDetails
+        params.bankDetails,
       );
-      return { provider, status: "pending", providerRef: params.reference };
+      return { provider, status: 'pending', providerRef: params.reference };
     } else {
       const res = await this.paycrest.createOrder({
         amount: params.amount,
         currency: params.currency,
         customerEmail: params.customerEmail,
         reference: params.reference,
-        type: "offramp",
+        type: 'offramp',
       });
-      return { provider, status: "pending", providerRef: res.id || params.reference };
+      return {
+        provider,
+        status: 'pending',
+        providerRef: res.id || params.reference,
+      };
     }
   }
 }

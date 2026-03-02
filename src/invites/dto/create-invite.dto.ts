@@ -1,4 +1,4 @@
-import { IsEmail, IsUUID, IsInt, Min, Max, IsOptional } from "class-validator";
+import { IsEmail, IsUUID, IsInt, Min, Max, IsOptional } from 'class-validator';
 
 export class CreateInviteDto {
   @IsUUID()

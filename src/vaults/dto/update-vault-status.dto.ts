@@ -1,8 +1,8 @@
-import { IsEnum, IsString, IsOptional, MaxLength } from "class-validator";
-import { VaultStatus } from "../../domain/enums";
+import { IsEnum, IsString, IsOptional, MaxLength } from 'class-validator';
+import { VaultStatus } from '../../domain/enums';
 
 export class UpdateVaultStatusDto {
-  @IsEnum([VaultStatus.CANCELLED, VaultStatus.PAUSED])
+  @IsEnum([VaultStatus.CANCELLED])
   status: VaultStatus;
 
   @IsString()

@@ -1,14 +1,17 @@
-import { IsUUID, IsEnum, IsString, MinLength, MaxLength, IsOptional } from "class-validator";
-import { DisputeType, UserRole } from "../../domain/enums";
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
+import { DisputeType } from '../../domain/enums';
 
 export class CreateDisputeDto {
   @IsUUID()
   vaultId: string;
 
-  @IsUUID()
-  milestoneId: string;
-
-  @IsUUID()
+  @IsString()
   @IsOptional()
   requirementRef?: string;
 
@@ -19,7 +22,6 @@ export class CreateDisputeDto {
   reasonCode: string;
 
   @IsString()
-  @MinLength(10)
-  @MaxLength(2000)
+  @MaxLength(1000)
   description: string;
 }

@@ -1,4 +1,4 @@
-import { IsString, IsInt, Min, Max, IsEnum } from "class-validator";
+import { IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
 
 export class GetPresignedUrlDto {
   @IsString()
@@ -12,6 +12,6 @@ export class GetPresignedUrlDto {
   @Max(104857600) // 100MB
   fileSize: number;
 
-  @IsEnum(["kyc", "deliverable", "evidence"])
-  purpose: "kyc" | "deliverable" | "evidence";
+  @IsEnum(['kyc', 'deliverable', 'evidence'])
+  purpose: 'kyc' | 'deliverable' | 'evidence';
 }

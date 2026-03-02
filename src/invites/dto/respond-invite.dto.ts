@@ -1,8 +1,8 @@
-import { IsEnum, IsString, MaxLength, IsOptional } from "class-validator";
+import { IsEnum, IsString, MaxLength, IsOptional } from 'class-validator';
 
 export class RespondInviteDto {
-  @IsEnum(["accept", "decline"])
-  action: "accept" | "decline";
+  @IsEnum(['accept', 'decline'])
+  action: 'accept' | 'decline';
 
   @IsString()
   @MaxLength(500)

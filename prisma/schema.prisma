@@ -16,39 +16,11 @@ datasource db {
 
 enum VaultStatus {
   DRAFT
-  AWAITING_FUNDING
-  INVITED
-  FUNDED_UNASSIGNED
-  FUNDED_ASSIGNED
-  ACTIVE
-  IN_REVIEW
-  CLOSED
+  FUNDED
+  RELEASED
+  REFUNDED
+  DISPUTED
   CANCELLED
-  PAUSED
-  DISPUTED
-}
-
-enum MilestoneStatus {
-  PENDING
-  SUBMITTED
-  AWAITING_APPROVAL
-  VERIFIED
-  REVISION_REQUESTED
-  REJECTED
-  DISPUTED
-}
-
-enum VerificationResult {
-  PASS
-  FAIL
-  FLAGGED
-  HUMAN_REVIEW
-}
-
-enum MilestoneReviewOutcome {
-  APPROVE
-  REQUEST_CHANGES
-  REJECT
 }
 
 enum DisputeStatus {
@@ -152,6 +124,7 @@ model User {
   notifications    Notification[]
   notificationPreferences NotificationPreferences?
   sessions         Session[]
+  refundRequests   RefundRequest[]
 
   @@index([email])
   @@index([role])
@@ -218,7 +191,7 @@ model Session {
 }
 
 // ============================================================================
-// VAULT & MILESTONES
+// VAULT & SUBMISSIONS
 // ============================================================================
 
 model Vault {
@@ -227,7 +200,8 @@ model Vault {
   description    String?
   type           String // development | design | content_ai | consulting
   status         VaultStatus @default(DRAFT)
-  totalAmount    Float
+  amount         Float       @default(0) // total amount
+  totalAmount    Float       // kept for compatibility if needed, else same as amount
   clientId       String
   freelancerId   String?
   vaultAddress   String?     @unique // Smart Contract Address
@@ -239,10 +213,11 @@ model Vault {
   // Relations
   client         User        @relation("ClientVaults", fields: [clientId], references: [id])
   freelancer     User?       @relation("FreelancerVaults", fields: [freelancerId], references: [id])
-  milestones     Milestone[]
+  submission     Submission?
   ledgerEntries  LedgerEntry[]
   disputes       Dispute[]
   invites        Invite[]
+  refundRequest  RefundRequest?
 
   @@index([clientId])
   @@index([freelancerId])
@@ -250,37 +225,9 @@ model Vault {
   @@index([createdAt])
 }
 
-model Milestone {
-  id                    String          @id @default(uuid())
-  vaultId               String
-  title                 String
-  status                MilestoneStatus @default(PENDING)
-  amount                Float
-  dueDate               DateTime?
-  deliverableTypeId     String?
-  deliverableMode       String?         // LINK | FILE
-  auditEnabled          Boolean         @default(true)
-  requirementItemsJson  Json?           // Array of RequirementItem
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-
-  // Relations
-  vault         Vault              @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-  submission    Submission?
-  verification  Verification?
-  review        MilestoneReview?
-  disputes      Dispute[]
-  ledgerEntries LedgerEntry[]
-  evidence      Evidence[]
-
-  @@index([vaultId])
-  @@index([status])
-  @@index([dueDate])
-}
-
 model Submission {
   id              String   @id @default(uuid())
-  milestoneId     String   @unique
+  vaultId         String   @unique
   submittedAt     DateTime @default(now())
   submittedBy     String
   notes           String?
@@ -292,44 +239,9 @@ model Submission {
   fileSize        Int?
   fileMime        String?
 
-  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
 
-  @@index([milestoneId])
-}
-
-model Verification {
-  id               String             @id @default(uuid())
-  milestoneId      String             @unique
-  result           VerificationResult
-  verifiedAt       DateTime           @default(now())
-  verifiedBy       String             @default("AI") // AI | HUMAN
-  confidence       Float?
-  checksCompleted  Int?
-  checksTotal      Int?
-  riskLevel        String?            // LOW | MEDIUM | HIGH
-  flags            Json?              // Array of strings
-  checks           Json?              // Array of check descriptions
-  ruleResultsJson  Json?              // Array of rule results
-  notes            String?
-
-  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-
-  @@index([milestoneId])
-  @@index([result])
-}
-
-model MilestoneReview {
-  id          String                 @id @default(uuid())
-  milestoneId String                 @unique
-  reviewerId  String
-  outcome     MilestoneReviewOutcome
-  reasonCodes Json?                  // Array of strings
-  notes       String?
-  reviewedAt  DateTime               @default(now())
-
-  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-
-  @@index([milestoneId])
+  @@index([vaultId])
 }
 
 // ============================================================================
@@ -339,8 +251,6 @@ model MilestoneReview {
 model Dispute {
   id             String        @id @default(uuid())
   vaultId        String
-  milestoneId    String
-  requirementRef String?       // reqId if requirement-specific
   disputeType    DisputeType
   reasonCode     String
   openedByUserId String
@@ -354,13 +264,11 @@ model Dispute {
 
   // Relations
   vault     Vault           @relation(fields: [vaultId], references: [id])
-  milestone Milestone       @relation(fields: [milestoneId], references: [id])
   openedBy  User            @relation(fields: [openedByUserId], references: [id])
   events    DisputeEvent[]
   evidence  Evidence[]
 
   @@index([vaultId])
-  @@index([milestoneId])
   @@index([status])
   @@index([openedByUserId])
 }
@@ -383,7 +291,6 @@ model DisputeEvent {
 model Evidence {
   id                      String       @id @default(uuid())
   vaultId                 String
-  milestoneId             String?
   disputeId               String?
   type                    EvidenceType
   payload                 Json
@@ -391,12 +298,10 @@ model Evidence {
   immutableAfterSubmission Boolean     @default(true)
   createdAt               DateTime     @default(now())
 
-  milestone Milestone? @relation(fields: [milestoneId], references: [id])
   dispute   Dispute?   @relation(fields: [disputeId], references: [id])
   creator   User       @relation(fields: [createdBy], references: [id])
 
   @@index([vaultId])
-  @@index([milestoneId])
   @@index([disputeId])
   @@index([type])
 }
@@ -409,7 +314,6 @@ model LedgerEntry {
   id          String            @id @default(uuid())
   userId      String
   vaultId     String?
-  milestoneId String?
   type        LedgerEntryType
   amount      Float
   currency    String            @default("USD")
@@ -423,11 +327,9 @@ model LedgerEntry {
   // Relations
   user      User       @relation(fields: [userId], references: [id])
   vault     Vault?     @relation(fields: [vaultId], references: [id])
-  milestone Milestone? @relation(fields: [milestoneId], references: [id])
 
   @@index([userId])
   @@index([vaultId])
-  @@index([milestoneId])
   @@index([type])
   @@index([status])
   @@index([createdAt])
@@ -518,4 +420,33 @@ model NotificationPreferences {
   updatedAt             DateTime @updatedAt
 
   user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+// ============================================================================
+// REFUND REQUESTS (Administrative)
+// ============================================================================
+
+enum RefundRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+model RefundRequest {
+  id              String             @id @default(uuid())
+  vaultId         String             @unique
+  clientId        String
+  amount          Float
+  payoutMethod    String             // bank | card
+  payoutDetails   Json               // { bankName, accountNumber, holderName } or { cardDetails... }
+  status          RefundRequestStatus @default(PENDING)
+  adminNotes      String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  vault           Vault              @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  client          User               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
 }

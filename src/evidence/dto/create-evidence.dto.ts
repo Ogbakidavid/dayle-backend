@@ -1,5 +1,11 @@
-import { IsUUID, IsEnum, IsObject, IsOptional } from "class-validator";
-import { EvidenceType } from "../../domain/enums";
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsUUID,
+  IsObject,
+} from 'class-validator';
+import { EvidenceType } from '../../domain/enums';
 
 export class CreateEvidenceDto {
   @IsUUID()
@@ -7,19 +13,11 @@ export class CreateEvidenceDto {
 
   @IsUUID()
   @IsOptional()
-  milestoneId?: string;
+  disputeId?: string;
 
   @IsEnum(EvidenceType)
   type: EvidenceType;
 
-  @IsUUID()
-  @IsOptional()
-  disputeId?: string;
-
   @IsObject()
-  payload: {
-    content: string;
-    filesJson?: string;
-    supersedesEventId?: string;
-  };
+  payload: Record<string, any>;
 }

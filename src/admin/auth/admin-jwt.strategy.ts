@@ -1,4 +1,3 @@
-
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
@@ -23,6 +22,11 @@ export class AdminJwtStrategy extends PassportStrategy(Strategy, 'admin-jwt') {
     if (payload.role !== 'ADMIN') {
       throw new UnauthorizedException();
     }
-    return { id: payload.sub, email: payload.email, role: payload.role, permissions: payload.permissions };
+    return {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      permissions: payload.permissions,
+    };
   }
 }

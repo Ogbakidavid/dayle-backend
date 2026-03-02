@@ -1,8 +1,12 @@
-import { NestFactory } from "@nestjs/core";
-import { ValidationPipe } from "@nestjs/common";
-import cookieParser from "cookie-parser";
-import { AppModule } from "./app.module";
-import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
+import * as dns from 'node:dns';
+import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+
+// Force IPv4 first DNS resolution to avoid timeouts on networks with broken IPv6 (common in Node 18+)
+dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -24,8 +28,8 @@ async function bootstrap() {
   // CORS
   app.enableCors({
     origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
+      'http://localhost:3000',
+      'http://localhost:3001',
       process.env.FRONTEND_URL,
       process.env.ADMIN_URL,
     ].filter(Boolean),
@@ -33,7 +37,7 @@ async function bootstrap() {
   });
 
   // API prefix - exclude root route
-  app.setGlobalPrefix("api", { exclude: ["/"] });
+  app.setGlobalPrefix('api', { exclude: ['/'] });
 
   await app.listen(process.env.PORT || 4000);
   console.log(

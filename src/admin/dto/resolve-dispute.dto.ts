@@ -1,5 +1,5 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
-import { DisputeStatus, VaultStatus } from "../../domain/enums";
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { DisputeStatus, VaultStatus } from '../../domain/enums';
 
 export class ResolveDisputeDto {
   @IsEnum(DisputeStatus)

@@ -3,7 +3,11 @@ import { ReconcilerService } from './reconciler.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PartnaService } from '../common/services/partna.service';
 import { PaycrestService } from '../common/services/paycrest.service';
-import { VaultStatus, LedgerEntryType, TransactionStatus } from '../domain/enums';
+import {
+  VaultStatus,
+  LedgerEntryType,
+  TransactionStatus,
+} from '../domain/enums';
 
 describe('ReconcilerService', () => {
   let service: ReconcilerService;
@@ -61,8 +65,16 @@ describe('ReconcilerService', () => {
       {
         ...mockVault,
         ledgerEntries: [
-          { type: LedgerEntryType.DEPOSIT, amount: 1000, status: TransactionStatus.CONFIRMED },
-          { type: LedgerEntryType.RELEASE, amount: 1500, status: TransactionStatus.CONFIRMED }, // Over-release
+          {
+            type: LedgerEntryType.DEPOSIT,
+            amount: 1000,
+            status: TransactionStatus.CONFIRMED,
+          },
+          {
+            type: LedgerEntryType.RELEASE,
+            amount: 1500,
+            status: TransactionStatus.CONFIRMED,
+          }, // Over-release
         ],
       },
     ]);
@@ -80,15 +92,23 @@ describe('ReconcilerService', () => {
 
   it('should NOT freeze vault if integrity checks pass', async () => {
     mockPrisma.vault.update.mockClear(); // Clear previous calls
-    
+
     // Ledger balance = 1000 - 500 = 500 (Positive)
     // Total deposited = 1000 (Matches vault total)
     mockPrisma.vault.findMany.mockResolvedValue([
       {
         ...mockVault,
         ledgerEntries: [
-          { type: LedgerEntryType.DEPOSIT, amount: 1000, status: TransactionStatus.CONFIRMED },
-          { type: LedgerEntryType.RELEASE, amount: 500, status: TransactionStatus.CONFIRMED },
+          {
+            type: LedgerEntryType.DEPOSIT,
+            amount: 1000,
+            status: TransactionStatus.CONFIRMED,
+          },
+          {
+            type: LedgerEntryType.RELEASE,
+            amount: 500,
+            status: TransactionStatus.CONFIRMED,
+          },
         ],
       },
     ]);

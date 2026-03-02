@@ -5,11 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ServicesModule } from '../common/services/services.module';
 
 @Module({
-  imports: [
-    ScheduleModule.forRoot(),
-    PrismaModule, 
-    ServicesModule
-  ],
+  imports: [ScheduleModule.forRoot(), PrismaModule, ServicesModule],
   providers: [ReconcilerService],
   exports: [ReconcilerService],
 })

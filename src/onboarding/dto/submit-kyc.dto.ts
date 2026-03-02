@@ -5,7 +5,7 @@ import {
   IsDateString,
   IsNotEmpty,
   IsOptional,
-} from "class-validator";
+} from 'class-validator';
 
 export class SubmitKycDto {
   @IsString()

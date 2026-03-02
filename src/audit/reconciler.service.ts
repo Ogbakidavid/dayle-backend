@@ -3,7 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { PartnaService } from '../common/services/partna.service';
 import { PaycrestService } from '../common/services/paycrest.service';
-import { VaultStatus, LedgerEntryType, TransactionStatus } from '../domain/enums';
+import {
+  VaultStatus,
+  LedgerEntryType,
+  TransactionStatus,
+} from '../domain/enums';
 
 @Injectable()
 export class ReconcilerService {
@@ -24,7 +28,7 @@ export class ReconcilerService {
   async reconcileVaults() {
     const activeVaults = await this.prisma.vault.findMany({
       where: {
-        status: { in: [VaultStatus.ACTIVE, VaultStatus.FUNDED_ASSIGNED, VaultStatus.FUNDED_UNASSIGNED] },
+        status: { in: [VaultStatus.FUNDED, VaultStatus.RELEASED] },
         isFrozen: false,
       } as any,
       include: { ledgerEntries: true },
@@ -34,7 +38,9 @@ export class ReconcilerService {
       try {
         await this.checkVaultIntegrity(vault);
       } catch (error) {
-        this.logger.error(`Failed to reconcile vault ${vault.id}: ${error.message}`);
+        this.logger.error(
+          `Failed to reconcile vault ${vault.id}: ${error.message}`,
+        );
       }
     }
   }
@@ -45,7 +51,11 @@ export class ReconcilerService {
       .filter((e) => e.status === TransactionStatus.CONFIRMED)
       .reduce((acc, entry) => {
         if (entry.type === LedgerEntryType.DEPOSIT) return acc + entry.amount;
-        if (entry.type === LedgerEntryType.RELEASE || entry.type === LedgerEntryType.REFUND) return acc - entry.amount;
+        if (
+          entry.type === LedgerEntryType.RELEASE ||
+          entry.type === LedgerEntryType.REFUND
+        )
+          return acc - entry.amount;
         return acc;
       }, 0);
 
@@ -54,18 +64,26 @@ export class ReconcilerService {
     // For MVP, we ensure that if it's FUNDED, we have a confirmed DEPOSIT.
 
     const deposits = vault.ledgerEntries.filter(
-      (e) => e.type === LedgerEntryType.DEPOSIT && e.status === TransactionStatus.CONFIRMED,
+      (e) =>
+        e.type === LedgerEntryType.DEPOSIT &&
+        e.status === TransactionStatus.CONFIRMED,
     );
     const totalDeposited = deposits.reduce((acc, e) => acc + e.amount, 0);
 
     if (totalDeposited < vault.totalAmount) {
-      await this.freezeVault(vault.id, `Funding Mismatch: Expected ${vault.totalAmount}, found ${totalDeposited}`);
+      await this.freezeVault(
+        vault.id,
+        `Funding Mismatch: Expected ${vault.totalAmount}, found ${totalDeposited}`,
+      );
       return;
     }
 
     // 3. Check for Anomalies (e.g. Negative Balance)
     if (ledgerBalance < 0) {
-      await this.freezeVault(vault.id, `Negative Balance Detected: ${ledgerBalance}`);
+      await this.freezeVault(
+        vault.id,
+        `Negative Balance Detected: ${ledgerBalance}`,
+      );
       return;
     }
 

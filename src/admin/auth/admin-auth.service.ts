@@ -23,11 +23,11 @@ export class AdminAuthService {
   }
 
   async login(admin: any) {
-    const payload = { 
-        sub: admin.id, 
-        email: admin.email, 
-        role: 'ADMIN',
-        permissions: admin.permissions
+    const payload = {
+      sub: admin.id,
+      email: admin.email,
+      role: 'ADMIN',
+      permissions: admin.permissions,
     };
     return {
       access_token: this.jwtService.sign(payload),

@@ -1,7 +1,7 @@
 export enum DeliverableType {
-  GITHUB = "github",
-  FIGMA = "figma",
-  PDF = "pdf",
+  GITHUB = 'github',
+  FIGMA = 'figma',
+  PDF = 'pdf',
 }
 
 export interface BaseRule {
@@ -11,23 +11,22 @@ export interface BaseRule {
 }
 
 export interface GitHubRule extends BaseRule {
-  type: "github_repo";
+  type: 'github_repo';
   repoUrlPattern?: string;
   branchName?: string;
   prRequired?: boolean;
 }
 
 export interface FigmaRule extends BaseRule {
-  type: "figma_link";
+  type: 'figma_link';
   fileKeyPattern?: string;
 }
 
 export interface PdfRule extends BaseRule {
-  type: "pdf_file";
+  type: 'pdf_file';
   minPages?: number;
 }
 
-export type MilestoneRule = GitHubRule | FigmaRule | PdfRule;
 
 export interface RuleResult {
   ruleId: string;

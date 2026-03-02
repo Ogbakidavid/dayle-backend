@@ -14,8 +14,13 @@ export class DiditService {
     const workflowId = this.configService.get<string>('DIDIT_WORKFLOW_ID');
 
     if (!apiKey || !workflowId) {
-      this.logger.error('Missing Didit API Key or Workflow ID in environment variables');
-      throw new HttpException('DIDIT_CONFIG_MISSING', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error(
+        'Missing Didit API Key or Workflow ID in environment variables',
+      );
+      throw new HttpException(
+        'DIDIT_CONFIG_MISSING',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
     try {
@@ -35,7 +40,9 @@ export class DiditService {
       const data = await response.json();
 
       if (!response.ok) {
-        this.logger.error(`Failed to create Didit session: ${JSON.stringify(data)}`);
+        this.logger.error(
+          `Failed to create Didit session: ${JSON.stringify(data)}`,
+        );
         throw new HttpException(data, response.status);
       }
 
@@ -44,7 +51,7 @@ export class DiditService {
       this.logger.error(`Error in Didit createSession: ${error.message}`);
       throw new HttpException(
         error.message || 'Failed to create verification session',
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -61,8 +68,8 @@ export class DiditService {
       // Didit X-Signature-V2 format usually has timestamp and signature
       // Format: t=<timestamp>,v1=<signature>
       const parts = signatureHeader.split(',');
-      const tPart = parts.find(p => p.startsWith('t='));
-      const v1Part = parts.find(p => p.startsWith('v1='));
+      const tPart = parts.find((p) => p.startsWith('t='));
+      const v1Part = parts.find((p) => p.startsWith('v1='));
 
       if (!tPart || !v1Part) return false;
 
@@ -79,7 +86,7 @@ export class DiditService {
       // Secure compare
       return crypto.timingSafeEqual(
         Buffer.from(expectedSignature),
-        Buffer.from(signature)
+        Buffer.from(signature),
       );
     } catch (error) {
       this.logger.error(`Error verifying Didit signature: ${error.message}`);

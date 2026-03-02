@@ -2,12 +2,12 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { UpdateProfileDto } from "./dto/update-profile.dto";
-import { JwtService } from "@nestjs/jwt";
-import { PrivyService } from "./privy.service";
-import { UserRole } from "../domain/enums";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { JwtService } from '@nestjs/jwt';
+import { PrivyService } from './privy.service';
+import { UserRole } from '../domain/enums';
 
 @Injectable()
 export class AuthService {
@@ -22,56 +22,85 @@ export class AuthService {
     try {
       verifiedClaims = await this.privyService.verifyToken(accessToken);
     } catch (error) {
-      console.error("Token verification failed:", error);
-      throw new UnauthorizedException("Invalid auth token");
+      console.error('Token verification failed:', error);
+      throw new UnauthorizedException('Invalid auth token');
     }
 
     const claims = verifiedClaims as any;
     const privyDid = claims.user_id || claims.userId || claims.sub;
-    console.log('[privyLogin] Step 1: Token verified. DID:', privyDid, '| All claim keys:', Object.keys(claims));
-    
+    console.log(
+      '[privyLogin] Step 1: Token verified. DID:',
+      privyDid,
+      '| All claim keys:',
+      Object.keys(claims),
+    );
+
     if (!privyDid) {
-      throw new UnauthorizedException("Could not extract user ID from Privy token");
+      throw new UnauthorizedException(
+        'Could not extract user ID from Privy token',
+      );
     }
-    
+
     // Fetch full user details from Privy
     const privyUser = await this.privyService.getUser(privyDid);
     // REST API returns snake_case, old SDK returned camelCase — handle both
-    const linkedAccounts: any[] = (privyUser as any).linked_accounts || (privyUser as any).linkedAccounts || [];
-    console.log('[privyLogin] Step 2: Got Privy user. linked_accounts count:', linkedAccounts.length, '| Full user:', JSON.stringify(privyUser));
-    
+    const linkedAccounts: any[] =
+      (privyUser as any).linked_accounts ||
+      (privyUser as any).linkedAccounts ||
+      [];
+    console.log(
+      '[privyLogin] Step 2: Got Privy user. linked_accounts count:',
+      linkedAccounts.length,
+      '| Full user:',
+      JSON.stringify(privyUser),
+    );
+
     // Extract email — check all possible locations
     let email: string | null = null;
-    let name = "";
+    let name = '';
 
     // 1. Top-level email field (REST API sometimes returns this directly)
     if ((privyUser as any).email) {
       const emailField = (privyUser as any).email;
-      email = typeof emailField === "string" ? emailField : emailField.address || null;
+      email =
+        typeof emailField === 'string'
+          ? emailField
+          : emailField.address || null;
     }
 
     // 2. Search linked accounts
     if (!email) {
-      const emailAccount = linkedAccounts.find((acc: any) => acc.type === "email");
-      const googleAccount = linkedAccounts.find((acc: any) => acc.type === "google_oauth");
-      const githubAccount = linkedAccounts.find((acc: any) => acc.type === "github_oauth");
-      const appleAccount = linkedAccounts.find((acc: any) => acc.type === "apple_oauth");
+      const emailAccount = linkedAccounts.find(
+        (acc: any) => acc.type === 'email',
+      );
+      const googleAccount = linkedAccounts.find(
+        (acc: any) => acc.type === 'google_oauth',
+      );
+      const githubAccount = linkedAccounts.find(
+        (acc: any) => acc.type === 'github_oauth',
+      );
+      const appleAccount = linkedAccounts.find(
+        (acc: any) => acc.type === 'apple_oauth',
+      );
 
       if (emailAccount) {
         email = emailAccount.address || emailAccount.email || null;
       } else if (googleAccount) {
         email = googleAccount.email || null;
-        name = googleAccount.name || "";
+        name = googleAccount.name || '';
       } else if (githubAccount) {
         email = githubAccount.email || null;
-        name = githubAccount.name || "";
+        name = githubAccount.name || '';
       } else if (appleAccount) {
         email = appleAccount.email || null;
       }
     }
 
     if (!email) {
-      console.error('Privy User missing email. Full object:', JSON.stringify(privyUser));
+      console.error(
+        'Privy User missing email. Full object:',
+        JSON.stringify(privyUser),
+      );
       throw new BadRequestException('Email is required from social login');
     }
 
@@ -79,7 +108,7 @@ export class AuthService {
     if (!name) {
       name = email.split('@')[0];
     }
-    
+
     console.log('[privyLogin] Step 3: Email resolved:', email);
 
     // Check for existing user by email or wallet DID
@@ -92,7 +121,7 @@ export class AuthService {
       // If not found by email, try finding by wallet DID
       const wallet = await this.prisma.wallet.findFirst({
         where: { privyDid: privyDid },
-        include: { user: true }
+        include: { user: true },
       });
       if (wallet && wallet.user) {
         user = wallet.user as any;
@@ -101,7 +130,10 @@ export class AuthService {
 
     if (!user) {
       // Validate role if provided
-      const userRole = role && Object.values(UserRole).includes(role as UserRole) ? (role as UserRole) : UserRole.NONE;
+      const userRole =
+        role && Object.values(UserRole).includes(role as UserRole)
+          ? (role as UserRole)
+          : UserRole.NONE;
 
       console.log('[privyLogin] Step 4: Creating new user...');
       // Sequential operations — Neon's PgBouncer pooler doesn't support interactive transactions
@@ -119,10 +151,14 @@ export class AuthService {
         (account: any) =>
           account.type === 'wallet' && account.walletClientType === 'privy',
       );
-      const walletAddress = embeddedWallet ? (embeddedWallet as any).address : '';
+      const walletAddress = embeddedWallet
+        ? (embeddedWallet as any).address
+        : '';
 
       if (!walletAddress) {
-        console.warn(`Privy User ${privyDid} has no wallet address during signup.`);
+        console.warn(
+          `Privy User ${privyDid} has no wallet address during signup.`,
+        );
       }
 
       // Check if a wallet with this DID already exists (orphaned)
@@ -155,27 +191,36 @@ export class AuthService {
         include: { wallet: true },
       });
     } else if (!user.wallet) {
-      console.log('[privyLogin] Step 4b: User exists but no wallet, linking...');
+      console.log(
+        '[privyLogin] Step 4b: User exists but no wallet, linking...',
+      );
       // Link existing user to Privy if not linked
-      const existingWallet = await this.prisma.wallet.findFirst({ where: { privyDid: privyDid } });
-      
+      const existingWallet = await this.prisma.wallet.findFirst({
+        where: { privyDid: privyDid },
+      });
+
       if (!existingWallet) {
         const linkedAccounts = privyUser.linkedAccounts || [];
         const embeddedWallet = linkedAccounts.find(
-          (account: any) => account.type === "wallet" && account.walletClientType === "privy"
+          (account: any) =>
+            account.type === 'wallet' && account.walletClientType === 'privy',
         );
-        const walletAddress = embeddedWallet ? (embeddedWallet as any).address : `pending_${privyDid}`;
+        const walletAddress = embeddedWallet
+          ? (embeddedWallet as any).address
+          : `pending_${privyDid}`;
 
         await this.prisma.wallet.create({
           data: {
             userId: user.id,
             address: walletAddress,
             privyDid: privyDid,
-            provider: "PRIVY",
+            provider: 'PRIVY',
           },
         });
       } else {
-        console.warn(`Wallet with DID ${privyDid} exists but user ${user.id} has no wallet linked. Linking now if possible.`);
+        console.warn(
+          `Wallet with DID ${privyDid} exists but user ${user.id} has no wallet linked. Linking now if possible.`,
+        );
       }
 
       // Refresh user object
@@ -186,7 +231,7 @@ export class AuthService {
     }
 
     if (!user) {
-      throw new UnauthorizedException("Failed to synchronize user account");
+      throw new UnauthorizedException('Failed to synchronize user account');
     }
 
     const payload = {
@@ -199,11 +244,13 @@ export class AuthService {
 
     console.log('[privyLogin] Step 5: Creating session for user:', user.id);
     const accessTokenJwt = await this.jwtService.signAsync(payload);
-    const refreshTokenJwt = await this.jwtService.signAsync(payload, { expiresIn: "30d" });
+    const refreshTokenJwt = await this.jwtService.signAsync(payload, {
+      expiresIn: '30d',
+    });
 
     // Create Session
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); 
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     await this.prisma.session.create({
       data: {
@@ -211,7 +258,7 @@ export class AuthService {
         accessToken: accessTokenJwt,
         refreshToken: refreshTokenJwt,
         expiresAt,
-      }
+      },
     });
 
     console.log('[privyLogin] Step 6: Login complete.');
@@ -235,8 +282,8 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException({
-        code: "UNAUTHORIZED",
-        message: "User not found",
+        code: 'UNAUTHORIZED',
+        message: 'User not found',
       });
     }
 
@@ -259,20 +306,20 @@ export class AuthService {
   async getSessions(userId: string) {
     return this.prisma.session.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async revokeSession(userId: string, sessionId: string) {
     await this.prisma.session.deleteMany({
-      where: { id: sessionId, userId }
+      where: { id: sessionId, userId },
     });
     return { success: true };
   }
 
   async revokeAllSessions(userId: string) {
     const result = await this.prisma.session.deleteMany({
-      where: { userId }
+      where: { userId },
     });
     return { success: true, revokedCount: result.count };
   }

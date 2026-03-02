@@ -27,7 +27,6 @@ export class EvidenceService {
     const evidence = await prisma.evidence.create({
       data: {
         vaultId: dto.vaultId,
-        milestoneId: dto.milestoneId,
         disputeId: dto.disputeId,
         type: dto.type as unknown as PrismaEvidenceType,
         payload: dto.payload as Prisma.InputJsonValue,
@@ -41,36 +40,24 @@ export class EvidenceService {
   async list(
     userId: string,
     role: string,
-    vaultId?: string,
-    milestoneId?: string,
+    vaultId: string,
     type?: EvidenceType,
   ) {
     const prisma = this.prisma;
-    let effectiveVaultId = vaultId;
 
-    // If vaultId is missing but milestoneId is provided, derive vaultId
-    if (!effectiveVaultId && milestoneId) {
-      const milestone = await prisma.milestone.findUnique({
-        where: { id: milestoneId },
-        select: { vaultId: true },
-      });
-      if (milestone) {
-        effectiveVaultId = milestone.vaultId;
-      }
-    }
-
-    if (!effectiveVaultId) {
-      throw new NotFoundException('Vault ID is required or could not be derived');
+    if (!vaultId) {
+      throw new NotFoundException('Vault ID is required');
     }
 
     const vault = await prisma.vault.findUnique({
-      where: { id: effectiveVaultId },
+      where: { id: vaultId },
     });
 
     if (!vault) throw new NotFoundException('Vault not found');
-    
+
     // Allow Admins or participants
-    const isParticipant = vault.clientId === userId || vault.freelancerId === userId;
+    const isParticipant =
+      vault.clientId === userId || vault.freelancerId === userId;
     const isAdmin = role === 'ADMIN';
 
     if (!isParticipant && !isAdmin) {
@@ -78,8 +65,7 @@ export class EvidenceService {
     }
 
     const where: Prisma.EvidenceWhereInput = {
-      vaultId: effectiveVaultId,
-      milestoneId: milestoneId || undefined,
+      vaultId,
       type: (type as unknown as PrismaEvidenceType) || undefined,
     };
 

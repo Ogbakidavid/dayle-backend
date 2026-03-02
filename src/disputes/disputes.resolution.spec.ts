@@ -1,9 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ResolveDisputeDto, DisputeResolutionOutcome } from './dto/resolve-dispute.dto';
-import { UserRole, DisputeStatus, LedgerEntryType, TransactionStatus, MilestoneStatus, VaultStatus } from '../domain/enums';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ResolveDisputeDto,
+  DisputeResolutionOutcome,
+} from './dto/resolve-dispute.dto';
+import {
+  UserRole,
+  DisputeStatus,
+  LedgerEntryType,
+  TransactionStatus,
+  VaultStatus,
+} from '../domain/enums';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('DisputesService Adjudication', () => {
   let service: DisputesService;
@@ -22,9 +35,6 @@ describe('DisputesService Adjudication', () => {
     },
     disputeEvent: {
       create: jest.fn(),
-    },
-    milestone: {
-      update: jest.fn(),
     },
     vault: {
       update: jest.fn(),
@@ -48,9 +58,12 @@ describe('DisputesService Adjudication', () => {
     id: 'dispute-1',
     status: DisputeStatus.OPEN,
     vaultId: 'vault-1',
-    milestoneId: 'milestone-1',
-    milestone: { id: 'milestone-1', amount: 1000 },
-    vault: { id: 'vault-1', freelancerId: 'freelancer-1', clientId: 'client-1' },
+    vault: {
+      id: 'vault-1',
+      freelancerId: 'freelancer-1',
+      clientId: 'client-1',
+      totalAmount: 1000,
+    },
   };
 
   const mockAdmin = { id: 'admin-1', role: UserRole.ADMIN };
@@ -58,7 +71,10 @@ describe('DisputesService Adjudication', () => {
   it('should resolve dispute with RELEASE outcome', async () => {
     mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
     mockPrisma.user.findUnique.mockResolvedValue(mockAdmin);
-    mockPrisma.dispute.update.mockResolvedValue({ ...mockDispute, status: DisputeStatus.RESOLVED });
+    mockPrisma.dispute.update.mockResolvedValue({
+      ...mockDispute,
+      status: DisputeStatus.RESOLVED,
+    });
 
     const dto: ResolveDisputeDto = {
       outcome: DisputeResolutionOutcome.RELEASE,
@@ -132,13 +148,18 @@ describe('DisputesService Adjudication', () => {
 
   it('should throw error if non-admin tries to resolve', async () => {
     mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
-    mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', role: UserRole.FREELANCER });
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      role: UserRole.FREELANCER,
+    });
 
     const dto: ResolveDisputeDto = {
       outcome: DisputeResolutionOutcome.RELEASE,
       notes: 'Try to resolve',
     };
 
-    await expect(service.resolve('dispute-1', 'user-1', UserRole.FREELANCER, dto)).rejects.toThrow(ForbiddenException);
+    await expect(
+      service.resolve('dispute-1', 'user-1', UserRole.FREELANCER, dto),
+    ).rejects.toThrow(ForbiddenException);
   });
 });

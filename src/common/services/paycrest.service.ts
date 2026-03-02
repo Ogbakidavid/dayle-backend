@@ -1,5 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PaycrestService {
@@ -9,16 +9,18 @@ export class PaycrestService {
   private readonly apiSecret: string;
 
   constructor(private configService: ConfigService) {
-    this.baseUrl = this.configService.get<string>("PAYCREST_BASE_URL") || "https://api.paycrest.io/v1";
-    this.apiKey = this.configService.get<string>("PAYCREST_API_KEY")!;
-    this.apiSecret = this.configService.get<string>("PAYCREST_API_SECRET")!;
+    this.baseUrl =
+      this.configService.get<string>('PAYCREST_BASE_URL') ||
+      'https://api.paycrest.io/v1';
+    this.apiKey = this.configService.get<string>('PAYCREST_API_KEY')!;
+    this.apiSecret = this.configService.get<string>('PAYCREST_API_SECRET')!;
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+      'API-Key': this.apiKey,
       ...options.headers,
     } as any;
 
@@ -26,8 +28,13 @@ export class PaycrestService {
       const response = await fetch(url, { ...options, headers });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        this.logger.error(`Paycrest API error: ${response.status} - ${JSON.stringify(error)}`);
-        throw new Error(error.message || `Paycrest API request failed with status ${response.status}`);
+        this.logger.error(
+          `Paycrest API error: ${response.status} - ${JSON.stringify(error)}`,
+        );
+        throw new Error(
+          error.message ||
+            `Paycrest API request failed with status ${response.status}`,
+        );
       }
       return response.json();
     } catch (err) {
@@ -41,17 +48,19 @@ export class PaycrestService {
     currency: string;
     customerEmail: string;
     reference: string;
-    type: "onramp" | "offramp";
+    type: 'onramp' | 'offramp';
   }) {
-    // Basic Paycrest order creation logic based on their quickstart
-    return this.request("/orders", {
-      method: "POST",
+    // Standard Paycrest order creation with mandatory fields for onramp/offramp
+    return this.request('/orders', {
+      method: 'POST',
       body: JSON.stringify({
         amount: params.amount,
         currency: params.currency,
         email: params.customerEmail,
-        external_id: params.reference,
+        reference: params.reference,
         type: params.type,
+        token: 'CUSD', // Target token for Dayle
+        network: 'CELO', // Target network for Dayle
       }),
     });
   }

@@ -9,7 +9,11 @@ export class EvidenceController {
   constructor(private readonly evidenceService: EvidenceService) {}
 
   @Post()
-  async create(@User('id') userId: string, @User('role') role: UserRole, @Body() dto: CreateEvidenceDto) {
+  async create(
+    @User('id') userId: string,
+    @User('role') role: UserRole,
+    @Body() dto: CreateEvidenceDto,
+  ) {
     return this.evidenceService.create(userId, role, dto);
   }
 
@@ -18,9 +22,8 @@ export class EvidenceController {
     @User('id') userId: string,
     @User('role') role: UserRole,
     @Query('vaultId') vaultId: string,
-    @Query('milestoneId') milestoneId?: string,
     @Query('type') type?: EvidenceType,
   ) {
-    return this.evidenceService.list(userId, role, vaultId, milestoneId, type);
+    return this.evidenceService.list(userId, role, vaultId, type);
   }
 }

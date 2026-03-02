@@ -1,12 +1,12 @@
-import { Controller, Post, Body } from "@nestjs/common";
-import { UploadsService } from "./uploads.service";
-import { GetPresignedUrlDto } from "./dto/get-presigned-url.dto";
+import { Controller, Post, Body } from '@nestjs/common';
+import { UploadsService } from './uploads.service';
+import { GetPresignedUrlDto } from './dto/get-presigned-url.dto';
 
-@Controller("uploads")
+@Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
 
-  @Post("presigned-url")
+  @Post('presigned-url')
   async getPresignedUrl(@Body() dto: GetPresignedUrlDto) {
     return this.uploadsService.getPresignedUrl(dto);
   }

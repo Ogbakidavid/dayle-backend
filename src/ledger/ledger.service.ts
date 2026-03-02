@@ -1,10 +1,14 @@
-import { Injectable, BadRequestException, ForbiddenException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
-import { LedgerEntryType, TransactionStatus, KycStatus } from "../domain/enums";
-import { WithdrawDto } from "./dto/withdraw.dto";
-import { PaymentRouter } from "../common/services/payment-router.service";
-import { ConfigService } from "@nestjs/config";
+import { LedgerEntryType, TransactionStatus, KycStatus } from '../domain/enums';
+import { WithdrawDto } from './dto/withdraw.dto';
+import { PaymentRouter } from '../common/services/payment-router.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class LedgerService {
@@ -32,7 +36,10 @@ export class LedgerService {
       },
     });
 
-    const pending = pendingEntries.reduce((sum, entry) => sum + entry.amount, 0);
+    const pending = pendingEntries.reduce(
+      (sum, entry) => sum + entry.amount,
+      0,
+    );
 
     return {
       available,
@@ -57,7 +64,7 @@ export class LedgerService {
         where,
         take: +limit,
         skip: +offset,
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: 'desc' },
       }),
       prisma.ledgerEntry.count({ where }),
     ]);
@@ -76,8 +83,8 @@ export class LedgerService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.kycStatus !== KycStatus.VERIFIED) {
       throw new ForbiddenException({
-        code: "KYC_REQUIRED",
-        message: "KYC verification required for withdrawals",
+        code: 'KYC_REQUIRED',
+        message: 'KYC verification required for withdrawals',
       });
     }
 
@@ -91,21 +98,21 @@ export class LedgerService {
     const balance = await this.getBalance(userId, role);
     if (balance.available < dto.amount) {
       throw new BadRequestException({
-        code: "INSUFFICIENT_FUNDS",
-        message: "Amount exceeds available balance",
+        code: 'INSUFFICIENT_FUNDS',
+        message: 'Amount exceeds available balance',
       });
     }
 
     // 4. Create Withdrawal Record (LedgerEntry)
     const result = await prisma.$transaction(async (tx) => {
       const providerRef = `withdraw_${userId}_${Date.now()}`;
-      
+
       const entry = await tx.ledgerEntry.create({
         data: {
           userId,
           type: LedgerEntryType.WITHDRAW,
           amount: -dto.amount, // Negative for withdrawal
-          currency: "USD",
+          currency: 'USD',
           status: TransactionStatus.PENDING,
           description: `Withdrawal to bank account ***${dto.bankDetails.accountNumber.slice(-4)}`,
           providerRef,
@@ -116,23 +123,23 @@ export class LedgerService {
       const user = await tx.user.findUnique({ where: { id: userId } });
       const offrampResult = await this.paymentRouter.initiateOfframp({
         amount: dto.amount,
-        currency: "USD",
+        currency: 'USD',
         reference: providerRef,
         bankDetails: {
           account_number: dto.bankDetails.accountNumber,
           bank_code: dto.bankDetails.routingNumber,
           account_name: dto.bankDetails.accountName,
         },
-        customerEmail: user?.email || "",
+        customerEmail: user?.email || '',
       });
 
       // Simple response body for current state
       const responseBody = {
         id: entry.id,
         createdAt: entry.createdAt,
-        type: "WITHDRAW",
+        type: 'WITHDRAW',
         amount: entry.amount,
-        currency: "USD",
+        currency: 'USD',
         status: entry.status,
         providerRef,
       };
@@ -141,8 +148,8 @@ export class LedgerService {
         data: {
           key: dto.idempotencyKey,
           userId,
-          endpoint: "/api/ledger/withdraw",
-          requestHash: "N/A", // Should hash request in production
+          endpoint: '/api/ledger/withdraw',
+          requestHash: 'N/A', // Should hash request in production
           responseBody: responseBody as any,
           statusCode: 201,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),

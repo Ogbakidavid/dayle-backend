@@ -1,5 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PartnaService {
@@ -9,17 +9,19 @@ export class PartnaService {
   private readonly apiUser: string;
 
   constructor(private configService: ConfigService) {
-    this.baseUrl = this.configService.get<string>("PARTNA_BASE_URL") || "https://api.getpartna.com/biz/v1";
-    this.apiKey = this.configService.get<string>("PARTNA_API_KEY")!;
-    this.apiUser = this.configService.get<string>("PARTNA_API_USER")!;
+    this.baseUrl =
+      this.configService.get<string>('PARTNA_BASE_URL') ||
+      'https://staging-vouchers.ventogram.com/api/v1';
+    this.apiKey = this.configService.get<string>('PARTNA_API_KEY')!;
+    this.apiUser = this.configService.get<string>('PARTNA_API_USER')!;
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
-      "Content-Type": "application/json",
-      "X-Api-Key": this.apiKey,
-      "X-Api-User": this.apiUser,
+      'Content-Type': 'application/json',
+      'X-Api-Key': this.apiKey,
+      'X-Api-User': this.apiUser,
       ...options.headers,
     } as any;
 
@@ -27,8 +29,13 @@ export class PartnaService {
       const response = await fetch(url, { ...options, headers });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        this.logger.error(`Partna API error: ${response.status} - ${JSON.stringify(error)}`);
-        throw new Error(error.message || `Partna API request failed with status ${response.status}`);
+        this.logger.error(
+          `Partna API error: ${response.status} - ${JSON.stringify(error)}`,
+        );
+        throw new Error(
+          error.message ||
+            `Partna API request failed with status ${response.status}`,
+        );
       }
       return response.json();
     } catch (err) {
@@ -40,25 +47,39 @@ export class PartnaService {
   /**
    * ONRAMP: Create a voucher for collections
    */
-  async createCollectionVoucher(amount: number, currency: string, reference: string, customerEmail: string) {
-    return this.request("/collection/voucher", {
-      method: "POST",
+  async createCollectionVoucher(
+    amount: number,
+    currency: string,
+    reference: string,
+    customerEmail: string,
+    customerFullName: string = 'Dayle User',
+  ) {
+    const res = await this.request('/vouchers', {
+      method: 'POST',
       body: JSON.stringify({
         amount,
-        currency,
-        reference,
-        customer_email: customerEmail,
-        callback_url: this.configService.get<string>("PARTNA_WEBHOOK_URL"),
+        email: customerEmail,
+        fullname: customerFullName,
+        merchant: this.apiUser,
       }),
     });
+
+    const isStaging = this.baseUrl.includes('staging');
+    const payBaseUrl = isStaging ? 'https://staging.ventogram.com' : 'https://ventogram.com';
+    const callback = this.configService.get<string>('PARTNA_WEBHOOK_URL');
+
+    return {
+      ...res,
+      pay_url: `${payBaseUrl}/voucher/pay?voucherId=${res.id || res.voucherId}&callback=${callback}`,
+    };
   }
 
   /**
    * OFFRAMP: Resolve bank account before payout
    */
   async resolveBankAccount(bankCode: string, accountNumber: string) {
-    return this.request("/resolve-bank-account", {
-      method: "POST",
+    return this.request('/resolve-bank-account', {
+      method: 'POST',
       body: JSON.stringify({
         bank_code: bankCode,
         account_number: accountNumber,
@@ -69,13 +90,18 @@ export class PartnaService {
   /**
    * OFFRAMP: Create a payment/payout
    */
-  async createPayment(amount: number, currency: string, reference: string, bankDetails: {
-    account_number: string;
-    bank_code: string;
-    account_name: string;
-  }) {
-    return this.request("/create-payment", {
-      method: "POST",
+  async createPayment(
+    amount: number,
+    currency: string,
+    reference: string,
+    bankDetails: {
+      account_number: string;
+      bank_code: string;
+      account_name: string;
+    },
+  ) {
+    return this.request('/create-payment', {
+      method: 'POST',
       body: JSON.stringify({
         amount,
         currency,
@@ -83,7 +109,7 @@ export class PartnaService {
         destination_account_number: bankDetails.account_number,
         destination_bank_code: bankDetails.bank_code,
         destination_account_name: bankDetails.account_name,
-        type: "bank-transfer",
+        type: 'bank-transfer',
       }),
     });
   }

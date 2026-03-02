@@ -1,9 +1,23 @@
-import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
-import { CreateDisputeDto } from "./dto/create-dispute.dto";
-import { ResolveDisputeDto, DisputeResolutionOutcome } from "./dto/resolve-dispute.dto";
-import { DisputeStatus, UserRole, VaultStatus, LedgerEntryType, TransactionStatus, MilestoneStatus } from "../domain/enums";
+import { CreateDisputeDto } from './dto/create-dispute.dto';
+import {
+  ResolveDisputeDto,
+  DisputeResolutionOutcome,
+} from './dto/resolve-dispute.dto';
+import {
+  DisputeStatus,
+  UserRole,
+  VaultStatus,
+  LedgerEntryType,
+  TransactionStatus,
+} from '../domain/enums';
 
 @Injectable()
 export class DisputesService {
@@ -15,9 +29,9 @@ export class DisputesService {
       where: { id: dto.vaultId },
     });
 
-    if (!vault) throw new NotFoundException("Vault not found");
+    if (!vault) throw new NotFoundException('Vault not found');
     if (vault.clientId !== userId && vault.freelancerId !== userId) {
-      throw new ForbiddenException("Not authorized");
+      throw new ForbiddenException('Not authorized');
     }
 
     const dispute = await prisma.$transaction(async (tx) => {
@@ -31,7 +45,6 @@ export class DisputesService {
       const newDispute = await tx.dispute.create({
         data: {
           vaultId: dto.vaultId,
-          milestoneId: dto.milestoneId,
           requirementRef: dto.requirementRef,
           disputeType: dto.disputeType,
           reasonCode: dto.reasonCode,
@@ -49,8 +62,11 @@ export class DisputesService {
           disputeId: newDispute.id,
           actorId: userId,
           actorRole: role,
-          eventType: "OPENED",
-          payload: { reasonCode: dto.reasonCode, requirementRef: dto.requirementRef },
+          eventType: 'OPENED',
+          payload: {
+            reasonCode: dto.reasonCode,
+            requirementRef: dto.requirementRef,
+          },
         },
       });
 
@@ -60,7 +76,14 @@ export class DisputesService {
     return dispute;
   }
 
-  async list(userId: string, role: UserRole, status?: DisputeStatus, vaultId?: string, limit: number = 50, offset: number = 0) {
+  async list(
+    userId: string,
+    role: UserRole,
+    status?: DisputeStatus,
+    vaultId?: string,
+    limit: number = 50,
+    offset: number = 0,
+  ) {
     const prisma = this.prisma;
     const where: any = {
       vault: {
@@ -75,7 +98,7 @@ export class DisputesService {
         where,
         take: +limit,
         skip: +offset,
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: 'desc' },
       }),
       prisma.dispute.count({ where }),
     ]);
@@ -87,44 +110,53 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { events: true, vault: true, milestone: true },
+      include: { events: true, vault: true },
     });
 
-    if (!dispute) throw new NotFoundException("Dispute not found");
+    if (!dispute) throw new NotFoundException('Dispute not found');
 
     // Allow Admins or participants
-    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
     const isAdmin = role === UserRole.ADMIN;
 
     if (!isParticipant && !isAdmin) {
-      throw new ForbiddenException("Not authorized");
+      throw new ForbiddenException('Not authorized');
     }
 
     return dispute;
   }
 
-  async resolve(id: string, adminId: string, role: string, dto: ResolveDisputeDto) {
+  async resolve(
+    id: string,
+    adminId: string,
+    role: string,
+    dto: ResolveDisputeDto,
+  ) {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { vault: true, milestone: true },
+      include: { vault: true },
     });
 
-    if (!dispute) throw new NotFoundException("Dispute not found");
+    if (!dispute) throw new NotFoundException('Dispute not found');
 
     // Only Admins can resolve
-    // We assume the controller check the role, but extra safety here
     const admin = await prisma.user.findUnique({ where: { id: adminId } });
     if (!admin || admin.role !== UserRole.ADMIN) {
-      throw new ForbiddenException("Only admins can resolve disputes");
+      throw new ForbiddenException('Only admins can resolve disputes');
     }
 
-    if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.REJECTED) {
-      throw new BadRequestException("Dispute is already closed");
+    if (
+      dispute.status === DisputeStatus.RESOLVED ||
+      dispute.status === DisputeStatus.REJECTED
+    ) {
+      throw new BadRequestException('Dispute is already closed');
     }
 
     const { outcome, splitAmount, notes } = dto;
-    const milestoneAmount = dispute.milestone.amount;
+    const amount = dispute.vault.totalAmount;
 
     const resolution = await prisma.$transaction(async (tx) => {
       // 1. Create Ledger Entries based on outcome
@@ -133,40 +165,47 @@ export class DisputesService {
           data: {
             userId: dispute.vault.freelancerId!,
             vaultId: dispute.vaultId,
-            milestoneId: dispute.milestoneId,
             type: LedgerEntryType.RELEASE,
-            amount: milestoneAmount,
+            amount,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution RELEASE: ${notes}`,
             disputeId: id,
             completedAt: new Date(),
           },
         });
+
+        await tx.vault.update({
+          where: { id: dispute.vaultId },
+          data: { status: VaultStatus.RELEASED as any },
+        });
       } else if (outcome === DisputeResolutionOutcome.REFUND) {
         await tx.ledgerEntry.create({
           data: {
             userId: dispute.vault.clientId,
             vaultId: dispute.vaultId,
-            milestoneId: dispute.milestoneId,
             type: LedgerEntryType.REFUND,
-            amount: milestoneAmount,
+            amount,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution REFUND: ${notes}`,
             disputeId: id,
             completedAt: new Date(),
           },
         });
+
+        await tx.vault.update({
+          where: { id: dispute.vaultId },
+          data: { status: VaultStatus.REFUNDED as any },
+        });
       } else if (outcome === DisputeResolutionOutcome.SPLIT) {
-        if (!splitAmount || splitAmount > milestoneAmount) {
-          throw new BadRequestException("Invalid split amount");
+        if (!splitAmount || splitAmount > amount) {
+          throw new BadRequestException('Invalid split amount');
         }
-        
+
         // Release splitAmount to freelancer
         await tx.ledgerEntry.create({
           data: {
             userId: dispute.vault.freelancerId!,
             vaultId: dispute.vaultId,
-            milestoneId: dispute.milestoneId,
             type: LedgerEntryType.RELEASE,
             amount: splitAmount,
             status: TransactionStatus.CONFIRMED,
@@ -181,14 +220,19 @@ export class DisputesService {
           data: {
             userId: dispute.vault.clientId,
             vaultId: dispute.vaultId,
-            milestoneId: dispute.milestoneId,
             type: LedgerEntryType.REFUND,
-            amount: milestoneAmount - splitAmount,
+            amount: amount - splitAmount,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution SPLIT (Refund): ${notes}`,
             disputeId: id,
             completedAt: new Date(),
           },
+        });
+
+        // Mark vault as released as it is fully processed
+        await tx.vault.update({
+          where: { id: dispute.vaultId },
+          data: { status: VaultStatus.RELEASED as any },
         });
       }
 
@@ -208,25 +252,9 @@ export class DisputesService {
           disputeId: id,
           actorId: adminId,
           actorRole: UserRole.ADMIN,
-          eventType: "RESOLVED",
+          eventType: 'RESOLVED',
           payload: { outcome, splitAmount, notes },
         },
-      });
-
-      // 4. Update Milestone status
-      await tx.milestone.update({
-        where: { id: dispute.milestoneId },
-        data: {
-          status: outcome === DisputeResolutionOutcome.RELEASE ? MilestoneStatus.VERIFIED : MilestoneStatus.REJECTED,
-        },
-      });
-
-      // 5. Check if we should un-dispute the Vault
-      // For simplicity, we just move it back to ACTIVE if there are other open milestones
-      // In a real system, you'd check more conditions
-      await tx.vault.update({
-        where: { id: dispute.vaultId },
-        data: { status: VaultStatus.ACTIVE as any },
       });
 
       return updatedDispute;

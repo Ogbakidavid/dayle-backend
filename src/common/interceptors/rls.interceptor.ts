@@ -18,7 +18,7 @@ export class RlsInterceptor implements NestInterceptor {
     if (user?.sub) {
       this.cls.set('userId', user.sub);
     }
-    
+
     if (user?.role) {
       this.cls.set('role', user.role);
     }

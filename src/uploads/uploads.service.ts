@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { GetPresignedUrlDto } from "./dto/get-presigned-url.dto";
+import { Injectable } from '@nestjs/common';
+import { GetPresignedUrlDto } from './dto/get-presigned-url.dto';
 
 @Injectable()
 export class UploadsService {

@@ -4,9 +4,9 @@ import {
   IsUUID,
   Min,
   ValidateNested,
-} from "class-validator";
-import { Type } from "class-transformer";
-import { BankDetailsDto } from "./bank-details.dto";
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { BankDetailsDto } from './bank-details.dto';
 
 export class WithdrawDto {
   @IsNumber()

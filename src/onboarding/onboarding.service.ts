@@ -2,12 +2,12 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { SetRoleDto } from "./dto/set-role.dto";
-import { SubmitKycDto } from "./dto/submit-kyc.dto";
-import { UserRole, KycStatus } from "../domain/enums";
-import { DiditService } from "../common/services/didit.service";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { SetRoleDto } from './dto/set-role.dto';
+import { SubmitKycDto } from './dto/submit-kyc.dto';
+import { UserRole, KycStatus } from '../domain/enums';
+import { DiditService } from '../common/services/didit.service';
 
 @Injectable()
 export class OnboardingService {
@@ -22,7 +22,7 @@ export class OnboardingService {
     });
 
     if (!user) {
-      throw new NotFoundException("User not found");
+      throw new NotFoundException('User not found');
     }
 
     const updatedUser = await this.prisma.user.update({
@@ -40,20 +40,20 @@ export class OnboardingService {
     });
 
     if (!user) {
-      throw new NotFoundException("User not found");
+      throw new NotFoundException('User not found');
     }
 
     if (user.role === UserRole.NONE) {
       throw new BadRequestException({
-        code: "ROLE_NOT_SET",
-        message: "Must set role first",
+        code: 'ROLE_NOT_SET',
+        message: 'Must set role first',
       });
     }
 
     if (user.kycStatus === KycStatus.VERIFIED) {
       throw new BadRequestException({
-        code: "KYC_ALREADY_VERIFIED",
-        message: "KYC already verified",
+        code: 'KYC_ALREADY_VERIFIED',
+        message: 'KYC already verified',
       });
     }
 
@@ -62,10 +62,10 @@ export class OnboardingService {
       dto.fullName ||
       (dto.firstName && dto.lastName
         ? `${dto.firstName} ${dto.lastName}`
-        : dto.firstName || dto.lastName || "Unknown User");
+        : dto.firstName || dto.lastName || 'Unknown User');
 
-    const address = dto.address || dto.country || "Address not provided";
-    const idDocumentUrl = dto.idDocumentUrl || "https://placeholder.com/id.jpg";
+    const address = dto.address || dto.country || 'Address not provided';
+    const idDocumentUrl = dto.idDocumentUrl || 'https://placeholder.com/id.jpg';
 
     // Update kycStatus and create/update kycData
     const updatedUser = await this.prisma.user.update({
@@ -106,7 +106,7 @@ export class OnboardingService {
     });
 
     if (!user) {
-      throw new NotFoundException("User not found");
+      throw new NotFoundException('User not found');
     }
 
     return {
@@ -122,16 +122,19 @@ export class OnboardingService {
     });
 
     if (!user) {
-      throw new NotFoundException("User not found");
+      throw new NotFoundException('User not found');
     }
 
-    // Usually, the frontend runs on localhost:3000 during dev. 
+    // Usually, the frontend runs on localhost:3000 during dev.
     // Ideally this is dynamic, but we can hardcode for testing.
-    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const callbackUrl = `${baseUrl}/client/settings?didit=success`;
 
     // Securely acquire session from Didit passing the userId as vendor_data
-    const sessionResponse = await this.diditService.createSession(userId, callbackUrl);
+    const sessionResponse = await this.diditService.createSession(
+      userId,
+      callbackUrl,
+    );
 
     // Update status to pending if they start a session
     await this.prisma.user.update({

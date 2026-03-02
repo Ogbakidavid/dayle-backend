@@ -1,5 +1,5 @@
-import { IsEnum, IsIn } from "class-validator";
-import { UserRole } from "../../domain/enums";
+import { IsEnum, IsIn } from 'class-validator';
+import { UserRole } from '../../domain/enums';
 
 export class SetRoleDto {
   @IsEnum(UserRole)
