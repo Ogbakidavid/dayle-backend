@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { BlockchainService } from '../common/services/blockchain.service';
+import { InvitesService } from '../invites/invites.service';
+import { MailsService } from '../notifications/mails.service';
+import { ConfigService } from '@nestjs/config';
 describe('VaultsService', () => {
   let service: VaultsService;
 
@@ -41,6 +44,18 @@ describe('VaultsService', () => {
         {
           provide: BlockchainService,
           useValue: mockBlockchainService,
+        },
+        {
+          provide: InvitesService,
+          useValue: {},
+        },
+        {
+          provide: MailsService,
+          useValue: {},
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
         },
       ],
     }).compile();

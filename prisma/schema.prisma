@@ -1,7 +1,3 @@
-// Dayle Backend Prisma Schema
-// Generated: 2026-01-29
-// Database: PostgreSQL
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,9 +6,302 @@ datasource db {
   provider = "postgresql"
 }
 
-// ============================================================================
-// ENUMS (matching lib/domain/enums.js)
-// ============================================================================
+model User {
+  id                      String                   @id @default(uuid())
+  email                   String                   @unique
+  name                    String
+  role                    UserRole                 @default(NONE)
+  status                  UserStatus               @default(ACTIVE)
+  kycStatus               KycStatus                @default(NONE)
+  profileImage            String?
+  emailVerified           Boolean                  @default(false)
+  twoFaEnabled            Boolean                  @default(false)
+  twoFactorSecret         String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  disputes                Dispute[]
+  evidenceCreated         Evidence[]
+  invitesSent             Invite[]                 @relation("InvitesSent")
+  kycData                 KycData?
+  ledgerEntries           LedgerEntry[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreferences?
+  refundRequests          RefundRequest[]
+  sessions                Session[]
+  clientVaults            Vault[]                  @relation("ClientVaults")
+  freelancerVaults        Vault[]                  @relation("FreelancerVaults")
+  wallet                  Wallet?
+
+  @@index([email])
+  @@index([role])
+  @@index([kycStatus])
+}
+
+model Admin {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  permissions  Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  address   String   @unique
+  privyDid  String   @unique
+  provider  String   @default("PRIVY")
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model KycData {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  fullName          String
+  dateOfBirth       DateTime
+  address           String
+  idDocumentUrl     String
+  proofOfAddressUrl String?
+  submittedAt       DateTime  @default(now())
+  reviewedAt        DateTime?
+  rejectionReason   String?
+  idNumber          String?
+  idType            String?
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  accessToken  String   @unique
+  refreshToken String   @unique
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accessToken])
+  @@index([refreshToken])
+}
+
+model Vault {
+  id            String         @id @default(uuid())
+  title         String
+  description   String?
+  type          String
+  status        VaultStatus    @default(DRAFT)
+  totalAmount   Float
+  clientId      String
+  freelancerId  String?
+  isFrozen      Boolean        @default(false)
+  frozenReason  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  vaultAddress  String?        @unique
+  amount        Float          @default(0)
+  deliverables  Json           @default("[]")
+  disputes      Dispute[]
+  invites       Invite[]
+  ledgerEntries LedgerEntry[]
+  refundRequest RefundRequest?
+  submissions   Submission[]
+  client        User           @relation("ClientVaults", fields: [clientId], references: [id])
+  freelancer    User?          @relation("FreelancerVaults", fields: [freelancerId], references: [id])
+
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Submission {
+  id                String   @id @default(uuid())
+  submittedAt       DateTime @default(now())
+  submittedBy       String
+  notes             String?
+  filesJson         Json?
+  deliverableType   String?
+  url               String?
+  fileUrl           String?
+  fileHash          String?
+  fileSize          Int?
+  fileMime          String?
+  vaultId           String
+  deliverableIds    Json     @default("[]")
+  deliverableStatus Json?
+  vault             Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([vaultId])
+}
+
+model Dispute {
+  id             String         @id @default(uuid())
+  vaultId        String
+  disputeType    DisputeType
+  reasonCode     String
+  openedByUserId String
+  openedByRole   UserRole
+  status         DisputeStatus  @default(OPEN)
+  description    String
+  resolution     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  resolvedAt     DateTime?
+  deliverableId  String?
+  deliverableTitle String?
+  openedBy       User           @relation(fields: [openedByUserId], references: [id])
+  vault          Vault          @relation(fields: [vaultId], references: [id])
+  events         DisputeEvent[]
+  evidence       Evidence[]
+
+  @@index([vaultId])
+  @@index([status])
+  @@index([openedByUserId])
+}
+
+model DisputeEvent {
+  id        String   @id @default(uuid())
+  disputeId String
+  actorId   String?
+  actorRole String?
+  eventType String
+  payload   Json?
+  createdAt DateTime @default(now())
+  dispute   Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId])
+  @@index([createdAt])
+}
+
+model Evidence {
+  id                       String       @id @default(uuid())
+  vaultId                  String
+  disputeId                String?
+  type                     EvidenceType
+  payload                  Json
+  createdBy                String
+  immutableAfterSubmission Boolean      @default(true)
+  createdAt                DateTime     @default(now())
+  creator                  User         @relation(fields: [createdBy], references: [id])
+  dispute                  Dispute?     @relation(fields: [disputeId], references: [id])
+
+  @@index([vaultId])
+  @@index([disputeId])
+  @@index([type])
+}
+
+model LedgerEntry {
+  id          String            @id @default(uuid())
+  userId      String
+  vaultId     String?
+  type        LedgerEntryType
+  amount      Float
+  currency    String            @default("USD")
+  status      TransactionStatus @default(PENDING)
+  description String
+  providerRef String?
+  disputeId   String?
+  createdAt   DateTime          @default(now())
+  completedAt DateTime?
+  user        User              @relation(fields: [userId], references: [id])
+  vault       Vault?            @relation(fields: [vaultId], references: [id])
+
+  @@index([userId])
+  @@index([vaultId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Invite {
+  id            String       @id @default(uuid())
+  token         String       @unique
+  vaultId       String
+  email         String
+  status        InviteStatus @default(PENDING)
+  invitedBy     String
+  invitedAt     DateTime     @default(now())
+  expiresAt     DateTime
+  respondedAt   DateTime?
+  declineReason String?
+  inviter       User         @relation("InvitesSent", fields: [invitedBy], references: [id])
+  vault         Vault        @relation(fields: [vaultId], references: [id])
+
+  @@index([token])
+  @@index([vaultId])
+  @@index([email])
+  @@index([status])
+}
+
+model IdempotencyRecord {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  userId       String
+  endpoint     String
+  requestHash  String
+  responseBody Json
+  statusCode   Int
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([key])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  timestamp DateTime @default(now())
+  read      Boolean  @default(false)
+  action    String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([timestamp])
+}
+
+model NotificationPreferences {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  emailEnabled          Boolean  @default(true)
+  telegramConnected     Boolean  @default(false)
+  telegramUsername      String?
+  telegramChatId        String?
+  whatsappPhoneVerified Boolean  @default(false)
+  whatsappPhoneE164     String?
+  whatsappConfirmCode   String?
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RefundRequest {
+  id            String              @id @default(uuid())
+  vaultId       String              @unique
+  clientId      String
+  amount        Float
+  payoutMethod  String
+  payoutDetails Json
+  status        RefundRequestStatus @default(PENDING)
+  adminNotes    String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  client        User                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  vault         Vault               @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+}
 
 enum VaultStatus {
   DRAFT
@@ -92,361 +381,9 @@ enum EvidenceType {
   DISPUTE_EVENT
 }
 
-// ============================================================================
-// USER & AUTH
-// ============================================================================
-
-model User {
-  id            String     @id @default(uuid())
-  email         String     @unique
-  name          String
-  role          UserRole   @default(NONE)
-  status        UserStatus @default(ACTIVE)
-  kycStatus     KycStatus  @default(NONE)
-  profileImage  String?
-  emailVerified Boolean    @default(false)
-  twoFaEnabled Boolean @default(false)
-  twoFactorSecret  String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  // KYC Data
-  kycData       KycData?
-
-  // Relations
-  clientVaults     Vault[]   @relation("ClientVaults")
-  freelancerVaults Vault[]   @relation("FreelancerVaults")
-  ledgerEntries    LedgerEntry[]
-  disputes         Dispute[] // Disputes opened by this user
-  evidenceCreated  Evidence[]
-  invitesSent      Invite[]  @relation("InvitesSent")
-  wallet           Wallet?
-  notifications    Notification[]
-  notificationPreferences NotificationPreferences?
-  sessions         Session[]
-  refundRequests   RefundRequest[]
-
-  @@index([email])
-  @@index([role])
-  @@index([kycStatus])
-}
-
-model Admin {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  passwordHash  String
-  permissions   Json?    // Array of strings e.g. ["MANAGE_USERS", "RESOLVE_DISPUTES"]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  // Relations - Admins don't own these but might reference them in logs
-  // For now, no direct relations needed as they oversee everything
-}
-
-model Wallet {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  address       String   @unique
-  privyDid      String   @unique
-  provider      String   @default("PRIVY")
-  status        String   @default("ACTIVE")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model KycData {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  fullName           String
-  dateOfBirth        DateTime
-  address            String
-  idDocumentUrl      String
-  proofOfAddressUrl  String?
-  idType             String?
-  idNumber           String?
-  submittedAt        DateTime @default(now())
-  reviewedAt         DateTime?
-  rejectionReason    String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  userId       String
-  accessToken  String   @unique // Hashed or encrypted in production ideally, but generic JWT for now
-  refreshToken String   @unique
-  ipAddress    String?
-  userAgent    String?
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([accessToken])
-  @@index([refreshToken])
-}
-
-// ============================================================================
-// VAULT & SUBMISSIONS
-// ============================================================================
-
-model Vault {
-  id             String      @id @default(uuid())
-  title          String
-  description    String?
-  type           String // development | design | content_ai | consulting
-  status         VaultStatus @default(DRAFT)
-  amount         Float       @default(0) // total amount
-  totalAmount    Float       // kept for compatibility if needed, else same as amount
-  clientId       String
-  freelancerId   String?
-  vaultAddress   String?     @unique // Smart Contract Address
-  isFrozen       Boolean     @default(false)
-  frozenReason   String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-
-  // Relations
-  client         User        @relation("ClientVaults", fields: [clientId], references: [id])
-  freelancer     User?       @relation("FreelancerVaults", fields: [freelancerId], references: [id])
-  submission     Submission?
-  ledgerEntries  LedgerEntry[]
-  disputes       Dispute[]
-  invites        Invite[]
-  refundRequest  RefundRequest?
-
-  @@index([clientId])
-  @@index([freelancerId])
-  @@index([status])
-  @@index([createdAt])
-}
-
-model Submission {
-  id              String   @id @default(uuid())
-  vaultId         String   @unique
-  submittedAt     DateTime @default(now())
-  submittedBy     String
-  notes           String?
-  filesJson       Json?    // Array of SubmissionFile
-  deliverableType String?  // link | file
-  url             String?
-  fileUrl         String?
-  fileHash        String?
-  fileSize        Int?
-  fileMime        String?
-
-  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-
-  @@index([vaultId])
-}
-
-// ============================================================================
-// DISPUTES & EVIDENCE
-// ============================================================================
-
-model Dispute {
-  id             String        @id @default(uuid())
-  vaultId        String
-  disputeType    DisputeType
-  reasonCode     String
-  openedByUserId String
-  openedByRole   UserRole
-  status         DisputeStatus @default(OPEN)
-  description    String
-  resolution     String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  resolvedAt     DateTime?
-
-  // Relations
-  vault     Vault           @relation(fields: [vaultId], references: [id])
-  openedBy  User            @relation(fields: [openedByUserId], references: [id])
-  events    DisputeEvent[]
-  evidence  Evidence[]
-
-  @@index([vaultId])
-  @@index([status])
-  @@index([openedByUserId])
-}
-
-model DisputeEvent {
-  id         String   @id @default(uuid())
-  disputeId  String
-  actorId    String?  // User ID or SYSTEM
-  actorRole  String?  // UserRole
-  eventType  String   // OPENED | EVIDENCE_ADDED | AI_REAUDIT | etc.
-  payload    Json?
-  createdAt  DateTime @default(now())
-
-  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
-
-  @@index([disputeId])
-  @@index([createdAt])
-}
-
-model Evidence {
-  id                      String       @id @default(uuid())
-  vaultId                 String
-  disputeId               String?
-  type                    EvidenceType
-  payload                 Json
-  createdBy               String
-  immutableAfterSubmission Boolean     @default(true)
-  createdAt               DateTime     @default(now())
-
-  dispute   Dispute?   @relation(fields: [disputeId], references: [id])
-  creator   User       @relation(fields: [createdBy], references: [id])
-
-  @@index([vaultId])
-  @@index([disputeId])
-  @@index([type])
-}
-
-// ============================================================================
-// LEDGER & WALLET
-// ============================================================================
-
-model LedgerEntry {
-  id          String            @id @default(uuid())
-  userId      String
-  vaultId     String?
-  type        LedgerEntryType
-  amount      Float
-  currency    String            @default("USD")
-  status      TransactionStatus @default(PENDING)
-  description String
-  providerRef String?           // rampTxId or chainTxHash
-  disputeId   String?
-  createdAt   DateTime          @default(now())
-  completedAt DateTime?
-
-  // Relations
-  user      User       @relation(fields: [userId], references: [id])
-  vault     Vault?     @relation(fields: [vaultId], references: [id])
-
-  @@index([userId])
-  @@index([vaultId])
-  @@index([type])
-  @@index([status])
-  @@index([createdAt])
-}
-
-// ============================================================================
-// INVITATIONS
-// ============================================================================
-
-model Invite {
-  id           String       @id @default(uuid())
-  token        String       @unique
-  vaultId      String
-  email        String
-  status       InviteStatus @default(PENDING)
-  invitedBy    String
-  invitedAt    DateTime     @default(now())
-  expiresAt    DateTime
-  respondedAt  DateTime?
-  declineReason String?
-
-  // Relations
-  vault   Vault @relation(fields: [vaultId], references: [id])
-  inviter User  @relation("InvitesSent", fields: [invitedBy], references: [id])
-
-  @@index([token])
-  @@index([vaultId])
-  @@index([email])
-  @@index([status])
-}
-
-// ============================================================================
-// IDEMPOTENCY
-// ============================================================================
-
-model IdempotencyRecord {
-  id           String   @id @default(uuid())
-  key          String   @unique
-  userId       String
-  endpoint     String
-  requestHash  String
-  responseBody Json
-  statusCode   Int
-  createdAt    DateTime @default(now())
-  expiresAt    DateTime
-
-  @@index([key])
-  @@index([userId])
-  @@index([expiresAt])
-}
-
-// ============================================================================
-// NOTIFICATIONS
-// ============================================================================
-
-model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  type      String   // milestone, payment, security, kyc, general
-  title     String
-  message   String
-  timestamp DateTime @default(now())
-  read      Boolean  @default(false)
-  action    String?
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([read])
-  @@index([timestamp])
-}
-
-model NotificationPreferences {
-  id                    String  @id @default(uuid())
-  userId                String  @unique
-  emailEnabled          Boolean @default(true)
-  
-  // Telegram
-  telegramConnected     Boolean @default(false)
-  telegramUsername      String?
-  telegramChatId        String?
-  
-  // WhatsApp
-  whatsappPhoneVerified Boolean @default(false)
-  whatsappPhoneE164     String?
-  whatsappConfirmCode   String? // Temporary storage for verification
-  
-  updatedAt             DateTime @updatedAt
-
-  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-// ============================================================================
-// REFUND REQUESTS (Administrative)
-// ============================================================================
-
 enum RefundRequestStatus {
   PENDING
   PROCESSING
   COMPLETED
   REJECTED
-}
-
-model RefundRequest {
-  id              String             @id @default(uuid())
-  vaultId         String             @unique
-  clientId        String
-  amount          Float
-  payoutMethod    String             // bank | card
-  payoutDetails   Json               // { bankName, accountNumber, holderName } or { cardDetails... }
-  status          RefundRequestStatus @default(PENDING)
-  adminNotes      String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-
-  vault           Vault              @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-  client          User               @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId])
-  @@index([status])
 }

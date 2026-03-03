@@ -34,6 +34,24 @@ export class DisputesService {
       throw new ForbiddenException('Not authorized');
     }
 
+    // Lookup deliverable ID by title from vault deliverables
+    let deliverableId: string | null = null;
+    let frozenTitle: string | null = null;
+
+    if (dto.deliverableTitle && vault.deliverables) {
+      const deliverables = vault.deliverables as any[];
+      const matchedDeliverable = deliverables.find(
+        (d) => d.title.toLowerCase() === dto.deliverableTitle?.toLowerCase(),
+      );
+
+      if (matchedDeliverable) {
+        deliverableId = matchedDeliverable.id;
+        frozenTitle = matchedDeliverable.title; // Store the official title
+      } else {
+        frozenTitle = dto.deliverableTitle; // Fallback to provided title
+      }
+    }
+
     const dispute = await prisma.$transaction(async (tx) => {
       // 1. Update Vault Status
       await tx.vault.update({
@@ -45,14 +63,15 @@ export class DisputesService {
       const newDispute = await tx.dispute.create({
         data: {
           vaultId: dto.vaultId,
-          requirementRef: dto.requirementRef,
+          deliverableId: deliverableId,
+          deliverableTitle: frozenTitle,
           disputeType: dto.disputeType,
           reasonCode: dto.reasonCode,
           openedByUserId: userId,
           openedByRole: role,
-          status: DisputeStatus.OPEN,
+          status: DisputeStatus.OPEN as any,
           description: dto.description,
-        },
+        } as any,
         include: { events: true },
       });
 
@@ -65,7 +84,8 @@ export class DisputesService {
           eventType: 'OPENED',
           payload: {
             reasonCode: dto.reasonCode,
-            requirementRef: dto.requirementRef,
+            deliverableId,
+            deliverableTitle: frozenTitle,
           },
         },
       });

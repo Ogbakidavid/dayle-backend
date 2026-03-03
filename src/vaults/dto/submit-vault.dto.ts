@@ -9,6 +9,15 @@ export class SubmitVaultDto {
   @IsOptional()
   comments?: string;
 
+  @IsArray()
+  @IsOptional()
+  deliverableStatus?: Array<{
+    deliverableId: string;
+    included: boolean;
+    notes?: string;
+    files?: Array<{ name: string; size: number }>;
+  }>;
+
   @IsString()
   @IsNotEmpty()
   idempotencyKey: string;

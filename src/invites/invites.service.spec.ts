@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InvitesService } from './invites.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockchainService } from '../common/services/blockchain.service';
+import { RedisService } from '../common/redis/redis.service';
 
 describe('InvitesService', () => {
   let service: InvitesService;
@@ -11,6 +13,14 @@ describe('InvitesService', () => {
         InvitesService,
         {
           provide: PrismaService,
+          useValue: {},
+        },
+        {
+          provide: BlockchainService,
+          useValue: {},
+        },
+        {
+          provide: RedisService,
           useValue: {},
         },
       ],

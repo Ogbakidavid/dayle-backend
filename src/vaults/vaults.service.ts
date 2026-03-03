@@ -113,7 +113,11 @@ export class VaultsService {
         freelancerId: freelancerId, // Link if they exist
         status: deployedVaultAddress ? VaultStatus.FUNDED : VaultStatus.DRAFT, // If deployed, it's ready for funding
         vaultAddress: deployedVaultAddress || null,
-      },
+        deliverables: (dto.deliverables || []).map((d) => ({
+          ...d,
+          id: (d as any).id || crypto.randomUUID(),
+        })),
+      } as any,
       include: {
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
@@ -205,6 +209,9 @@ export class VaultsService {
     const vaults = await prisma.vault.findMany({
       where,
       include: {
+        submissions: {
+          orderBy: { submittedAt: 'desc' },
+        },
         ledgerEntries: true,
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
@@ -230,15 +237,17 @@ export class VaultsService {
     if (cached) {
       vaultResult = JSON.parse(cached);
     } else {
-      const vault = await prisma.vault.findUnique({
-        where: { id },
-        include: {
-          submission: true,
-          ledgerEntries: true,
-          client: { select: { id: true, name: true, email: true } },
-          freelancer: { select: { id: true, name: true, email: true } },
+    const vault = await (prisma.vault.findUnique as any)({
+      where: { id },
+      include: {
+        submissions: {
+          orderBy: { submittedAt: 'desc' },
         },
-      });
+        ledgerEntries: true,
+        client: { select: { id: true, name: true, email: true } },
+        freelancer: { select: { id: true, name: true, email: true } },
+      },
+    });
 
       if (!vault) {
         throw new NotFoundException({
@@ -388,19 +397,14 @@ export class VaultsService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Create or update the submission block
-      const submission = await tx.submission.upsert({
-        where: { vaultId },
-        update: {
-          notes: dto.comments,
-          filesJson: dto.files as Prisma.InputJsonValue,
-          submittedAt: new Date(),
-          submittedBy: userId,
-        },
-        create: {
+      // Create the submission block
+      const submission = await (tx.submission.create as any)({
+        data: {
           vaultId,
           notes: dto.comments,
-          filesJson: (dto.files || []) as Prisma.InputJsonValue,
+          filesJson: (dto.files || []) as any,
+          deliverableStatus: (dto.deliverableStatus || []) as any,
+          deliverableIds: (dto.deliverableStatus?.filter(d => d.included).map(d => d.deliverableId) || []) as any,
           submittedBy: userId,
         },
       });
@@ -602,7 +606,8 @@ export class VaultsService {
       freelancerName: vault.freelancer?.name,
       freelancerEmail: vault.freelancer?.email,
       createdAt: vault.createdAt.toISOString(),
-      submission: vault.submission,
+      deliverables: vault.deliverables || [],
+      submissions: vault.submissions || [],
     };
   }
 

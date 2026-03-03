@@ -7,7 +7,12 @@ import {
   MaxLength,
   MinLength,
   Min,
+  IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { VaultType } from '../../domain/enums';
 
 export class CreateVaultDto {
@@ -39,4 +44,23 @@ export class CreateVaultDto {
   @IsString()
   @IsOptional()
   freelancerEmail?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => DeliverableDto)
+  deliverables: DeliverableDto[];
+}
+
+export class DeliverableDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  title: string;
+
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  description?: string;
 }

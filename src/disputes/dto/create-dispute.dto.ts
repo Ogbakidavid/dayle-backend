@@ -13,7 +13,11 @@ export class CreateDisputeDto {
 
   @IsString()
   @IsOptional()
-  requirementRef?: string;
+  deliverableTitle?: string;
+
+  @IsString()
+  @IsOptional()
+  deliverableId?: string;
 
   @IsEnum(DisputeType)
   disputeType: DisputeType;

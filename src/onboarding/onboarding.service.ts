@@ -144,7 +144,7 @@ export class OnboardingService {
 
     return {
       sessionId: sessionResponse.session_id,
-      url: sessionResponse.verification_url,
+      url: sessionResponse.url,
     };
   }
 
