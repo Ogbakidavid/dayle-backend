@@ -30,8 +30,21 @@ export class CreateVaultDto {
   type: VaultType;
 
   @IsNumber()
-  @Min(1)
+  @Min(0.01)
   totalAmount: number;
+
+  @IsString()
+  tokenAddress: string;
+
+  @IsString()
+  @IsOptional()
+  tokenSymbol?: string;
+
+  @IsNumber()
+  tokenDecimals: number;
+
+  @IsNumber()
+  chainId: number;
 
   @IsUUID()
   @IsOptional()

@@ -9,6 +9,7 @@ import { LedgerEntryType, TransactionStatus, KycStatus } from '../domain/enums';
 import { WithdrawDto } from './dto/withdraw.dto';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { ConfigService } from '@nestjs/config';
+import { ethers } from 'ethers';
 
 @Injectable()
 export class LedgerService {
@@ -27,7 +28,7 @@ export class LedgerService {
       },
     });
 
-    const available = entries.reduce((sum, entry) => sum + entry.amount, 0);
+    const available = entries.reduce((sum, entry) => sum + entry.amount, BigInt(0));
 
     const pendingEntries = await prisma.ledgerEntry.findMany({
       where: {
@@ -38,7 +39,7 @@ export class LedgerService {
 
     const pending = pendingEntries.reduce(
       (sum, entry) => sum + entry.amount,
-      0,
+      BigInt(0),
     );
 
     return {
@@ -96,7 +97,9 @@ export class LedgerService {
 
     // 3. Check Balance
     const balance = await this.getBalance(userId, role);
-    if (balance.available < dto.amount) {
+    const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), 18); // Defaulting to 18 decimals for now
+    
+    if (balance.available < withdrawAmountBigInt) {
       throw new BadRequestException({
         code: 'INSUFFICIENT_FUNDS',
         message: 'Amount exceeds available balance',
@@ -111,8 +114,8 @@ export class LedgerService {
         data: {
           userId,
           type: LedgerEntryType.WITHDRAW,
-          amount: -dto.amount, // Negative for withdrawal
-          currency: 'USD',
+          amount: -withdrawAmountBigInt, // Negative for withdrawal
+          currency: dto.currency || 'USD',
           status: TransactionStatus.PENDING,
           description: `Withdrawal to bank account ***${dto.bankDetails.accountNumber.slice(-4)}`,
           providerRef,
@@ -123,7 +126,7 @@ export class LedgerService {
       const user = await tx.user.findUnique({ where: { id: userId } });
       const offrampResult = await this.paymentRouter.initiateOfframp({
         amount: dto.amount,
-        currency: 'USD',
+        currency: dto.currency || 'USD',
         reference: providerRef,
         bankDetails: {
           account_number: dto.bankDetails.accountNumber,
@@ -139,7 +142,7 @@ export class LedgerService {
         createdAt: entry.createdAt,
         type: 'WITHDRAW',
         amount: entry.amount,
-        currency: 'USD',
+        currency: dto.currency || 'USD',
         status: entry.status,
         providerRef,
       };

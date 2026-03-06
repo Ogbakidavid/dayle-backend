@@ -241,6 +241,7 @@ export class InvitesService {
                 clientWallet,
                 freelancerWallet,
                 vault.totalAmount.toString(),
+                vault.tokenAddress,
               );
 
               // Update the vault with the on-chain address and status
@@ -261,6 +262,7 @@ export class InvitesService {
                 await this.blockchainService.depositToVault(
                   vaultAddress,
                   vault.totalAmount,
+                  vault.tokenAddress,
                 );
               }
 

@@ -88,6 +88,12 @@ export class VaultsService {
         ? this.configService.get<string>('ARBITER_ADDRESS')!
         : freelancerAddress;
 
+    // Convert totalAmount to BigInt (smallest units)
+    const totalAmountBigInt = ethers.parseUnits(
+      dto.totalAmount.toString(),
+      dto.tokenDecimals,
+    );
+
     try {
       this.logger.log(
         `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}`,
@@ -95,7 +101,8 @@ export class VaultsService {
       const { vaultAddress } = await this.blockchainService.deployVault(
         clientAddress,
         finalFreelancerAddress,
-        dto.totalAmount.toString(),
+        dto.totalAmount.toString(), // deployVault takes string amount
+        dto.tokenAddress,
       );
       deployedVaultAddress = vaultAddress;
     } catch (error) {
@@ -103,24 +110,32 @@ export class VaultsService {
       // We keep it as DRAFT if deployment fails, so user can retry
     }
 
-    const vault = await prisma.vault.create({
+    const vault = await (prisma.vault.create as any)({
       data: {
         title: dto.title,
         description: dto.description,
-        type: dto.type,
-        totalAmount: dto.totalAmount,
+        type: dto.type as any,
+        totalAmount: totalAmountBigInt,
+        tokenAddress: dto.tokenAddress,
+        tokenSymbol: dto.tokenSymbol || null,
+        tokenDecimals: dto.tokenDecimals,
+        chainId: dto.chainId,
         clientId: userId,
         freelancerId: freelancerId, // Link if they exist
-        status: deployedVaultAddress ? VaultStatus.FUNDED : VaultStatus.DRAFT, // If deployed, it's ready for funding
+        status: VaultStatus.DRAFT, // Always start as DRAFT
         vaultAddress: deployedVaultAddress || null,
-        deliverables: (dto.deliverables || []).map((d) => ({
-          ...d,
-          id: (d as any).id || crypto.randomUUID(),
-        })),
-      } as any,
+        deliverables: {
+          create: (dto.deliverables || []).map((d) => ({
+            title: d.title,
+            description: d.description,
+            status: 'PENDING',
+          })),
+        },
+      },
       include: {
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
+        deliverables: true,
       },
     });
 
@@ -212,6 +227,7 @@ export class VaultsService {
         submissions: {
           orderBy: { submittedAt: 'desc' },
         },
+        deliverables: true,
         ledgerEntries: true,
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
@@ -237,12 +253,13 @@ export class VaultsService {
     if (cached) {
       vaultResult = JSON.parse(cached);
     } else {
-    const vault = await (prisma.vault.findUnique as any)({
+    const vault = await prisma.vault.findUnique({
       where: { id },
       include: {
         submissions: {
           orderBy: { submittedAt: 'desc' },
         },
+        deliverables: true,
         ledgerEntries: true,
         client: { select: { id: true, name: true, email: true } },
         freelancer: { select: { id: true, name: true, email: true } },
@@ -275,7 +292,7 @@ export class VaultsService {
 
   async fund(id: string, dto: FundVaultDto, userId: string, role: string) {
     const prisma = this.prisma;
-    const vault = await prisma.vault.findUnique({
+    const vault = await (prisma.vault.findUnique as any)({
       where: { id },
     });
 
@@ -293,10 +310,10 @@ export class VaultsService {
       });
     }
 
-    if (vault.status !== VaultStatus.DRAFT) {
+    if (vault.status !== VaultStatus.DRAFT && vault.status !== VaultStatus.FUNDED) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
-        message: 'Vault not in DRAFT status',
+        message: 'Vault not in fundable status (must be DRAFT or FUNDED)',
       });
     }
 
@@ -311,15 +328,18 @@ export class VaultsService {
           vaultId: id,
           type: LedgerEntryType.DEPOSIT,
           amount: vault.totalAmount,
-          currency: 'USD',
+          currency: vault.tokenSymbol || 'USD',
           status: TransactionStatus.PENDING,
           description: `Funding for vault: ${vault.title}`,
           providerRef,
         },
       });
 
-      // Get user within transaction to ensure data consistency
-      const u = await tx.user.findUnique({ where: { id: userId } });
+      // Get user with wallet within transaction
+      const u = await tx.user.findUnique({ 
+        where: { id: userId },
+        include: { wallet: true }
+      });
       
       return { user: u, ledgerEntry: entry };
     });
@@ -327,12 +347,20 @@ export class VaultsService {
     // Payment router integration (Onramp) - OUTSIDE transaction to avoid timeouts
     let onrampResult;
     try {
+      let fiatAmount = Number(ethers.formatUnits(vault.totalAmount, vault.tokenDecimals));
+      const targetCurrency = dto.currency || 'USD';
+      
+      if (targetCurrency === 'NGN') {
+        fiatAmount = fiatAmount * 1500; // Mock exchange rate for MVP
+      }
+
       onrampResult = await this.paymentRouter.initiateOnramp({
-        amount: vault.totalAmount,
-        currency: 'USD',
+        amount: fiatAmount,
+        currency: targetCurrency,
         reference: providerRef,
         customerEmail: user?.email || '',
         customerFullName: user?.name || 'Dayle User',
+        walletAddress: vault.vaultAddress!, // Target for automated crypto delivery
       });
     } catch (err) {
       this.logger.warn(
@@ -345,13 +373,12 @@ export class VaultsService {
       };
     }
 
-    // Sync provider reference if it was changed by the provider (e.g. Partna Voucher ID)
+    // Sync provider reference if it was changed by the provider
     if (onrampResult.providerRef && onrampResult.providerRef !== providerRef) {
       await this.prisma.ledgerEntry.update({
         where: { id: ledgerEntry.id },
         data: { providerRef: onrampResult.providerRef },
       });
-      // Update local object for the return value
       ledgerEntry.providerRef = onrampResult.providerRef;
     }
 
@@ -361,6 +388,7 @@ export class VaultsService {
       vault,
       ledgerEntry,
       paymentUrl: onrampResult.paymentUrl,
+      bankDetails: (onrampResult as any).bankDetails, // Return virtual account info if provided
       provider: onrampResult.provider,
       providerRef: ledgerEntry.providerRef,
     };
@@ -404,7 +432,9 @@ export class VaultsService {
           notes: dto.comments,
           filesJson: (dto.files || []) as any,
           deliverableStatus: (dto.deliverableStatus || []) as any,
-          deliverableIds: (dto.deliverableStatus?.filter(d => d.included).map(d => d.deliverableId) || []) as any,
+          deliverables: {
+            connect: (dto.deliverableStatus?.filter(d => d.included).map(d => ({ id: d.deliverableId })) || []),
+          },
           submittedBy: userId,
         },
       });
@@ -428,7 +458,7 @@ export class VaultsService {
     });
     if (existing) return existing.responseBody;
 
-    const vault = await this.prisma.vault.findUnique({
+    const vault = await (this.prisma.vault.findUnique as any)({
       where: { id: vaultId },
     });
 
@@ -450,7 +480,7 @@ export class VaultsService {
           vaultId: vault.id,
           type: LedgerEntryType.RELEASE,
           amount: vault.totalAmount,
-          currency: 'USD',
+          currency: vault.tokenSymbol || 'USD',
           status: TransactionStatus.CONFIRMED,
           description: `Release for vault: ${vault.title}`,
           completedAt: new Date(),
@@ -489,7 +519,7 @@ export class VaultsService {
     });
     if (existing) return existing.responseBody;
 
-    const vault = await this.prisma.vault.findUnique({
+    const vault = await (this.prisma.vault.findUnique as any)({
       where: { id: vaultId },
     });
 
@@ -511,7 +541,7 @@ export class VaultsService {
           vaultId: vault.id,
           type: LedgerEntryType.REFUND,
           amount: vault.totalAmount,
-          currency: 'USD',
+          currency: vault.tokenSymbol || 'USD',
           status: TransactionStatus.CONFIRMED,
           description: `Refund for vault: ${vault.title}`,
           completedAt: new Date(),
@@ -587,7 +617,7 @@ export class VaultsService {
             le.type === LedgerEntryType.RELEASE &&
             le.status === TransactionStatus.CONFIRMED,
         )
-        .reduce((sum: number, le: any) => sum + le.amount, 0) || 0;
+        .reduce((sum: bigint, le: any) => sum + BigInt(le.amount), BigInt(0)) || BigInt(0);
 
     return {
       id: vault.id,
@@ -596,8 +626,15 @@ export class VaultsService {
       type: vault.type,
       status: vault.status,
       vaultAddress: vault.vaultAddress,
-      totalAmount: vault.totalAmount,
-      paidAmount,
+      tokenAddress: vault.tokenAddress,
+      tokenSymbol: vault.tokenSymbol,
+      tokenDecimals: vault.tokenDecimals,
+      chainId: vault.chainId,
+      totalAmount: vault.totalAmount.toString(),
+      amount: vault.amount.toString(),
+      paidAmount: paidAmount.toString(),
+      formattedTotalAmount: ethers.formatUnits(vault.totalAmount, vault.tokenDecimals),
+      formattedPaidAmount: ethers.formatUnits(paidAmount, vault.tokenDecimals),
       isFrozen: vault.isFrozen,
       frozenReason: vault.frozenReason,
       clientId: vault.clientId,
@@ -622,7 +659,7 @@ export class VaultsService {
    * Client requests an administrative refund
    */
   async requestRefund(id: string, userId: string, dto: any) {
-    const vault = await this.prisma.vault.findUnique({
+    const vault = await (this.prisma.vault.findUnique as any)({
       where: { id },
       include: { refundRequest: true },
     });
@@ -666,7 +703,7 @@ export class VaultsService {
    * Client reassigns the vault to another freelancer
    */
   async updateFreelancer(id: string, userId: string, dto: any) {
-    const vault = await this.prisma.vault.findUnique({
+    const vault = await (this.prisma.vault.findUnique as any)({
       where: { id },
       include: { client: true },
     });

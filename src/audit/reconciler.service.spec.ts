@@ -40,7 +40,7 @@ describe('ReconcilerService', () => {
   const mockVault = {
     id: 'vault-1',
     totalAmount: 1000,
-    status: VaultStatus.FUNDED_ASSIGNED,
+    status: VaultStatus.FUNDED,
     ledgerEntries: [],
   };
 

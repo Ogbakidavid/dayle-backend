@@ -8,6 +8,11 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 // Force IPv4 first DNS resolution to avoid timeouts on networks with broken IPv6 (common in Node 18+)
 dns.setDefaultResultOrder('ipv4first');
 
+// BigInt serialization fix for JSON.stringify
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 

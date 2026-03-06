@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PartnaService } from '../common/services/partna.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   TransactionStatus,
@@ -22,6 +23,7 @@ export class WebhooksService {
     private blockchainService: BlockchainService,
     private diditService: DiditService,
     private redisService: RedisService,
+    private partna: PartnaService,
   ) {}
 
   async handlePartnaWebhook(payload: any, signature: string) {
@@ -51,7 +53,7 @@ export class WebhooksService {
       }
     }
 
-    const { reference, status, amount, type } = payload.data || payload;
+    const { reference, status, amount, type, voucherCode } = payload.data || payload;
 
     // Map Partna status to our internal TransactionStatus
     let internalStatus = TransactionStatus.PENDING;
@@ -90,28 +92,59 @@ export class WebhooksService {
         include: { client: { include: { wallet: true } } },
       });
 
-      if (vault && vault.status === VaultStatus.DRAFT) {
+      if (vault && (vault.status === VaultStatus.DRAFT || vault.status === VaultStatus.FUNDED)) {
         this.logger.log(
           `Triggering Fiat -> cUSD conversion for Vault ${vault.id} to Wallet ${vault.client?.wallet?.address}`,
         );
 
         if (vault.client?.wallet?.address) {
           try {
-            if (vault.vaultAddress) {
+            if (vault.vaultAddress && voucherCode) {
               this.logger.log(
-                `Automatically depositing ${amount} cUSD into Vault Contract ${vault.vaultAddress}`,
+                `Automatically redeeming voucher ${voucherCode} for Vault ${vault.vaultAddress}`,
               );
+              await this.partna.redeemAndWithdraw({
+                voucherCode,
+                walletAddress: vault.vaultAddress!,
+                network: 'celo',
+                token: vault.tokenSymbol || 'cUSD',
+              });
+              
+              await this.prisma.vault.update({
+                where: { id: vault.id },
+                data: {
+                  status: VaultStatus.FUNDED,
+                  isFrozen: false,
+                  frozenReason: null,
+                } as any,
+              });
+            } else if (vault.vaultAddress) {
+              // Fallback to manual deposit if no voucherCode in payload
+              this.logger.warn(`No voucherCode in Partna webhook. Falling back to manual blockchain deposit.`);
               await this.blockchainService.depositToVault(
                 vault.vaultAddress,
-                amount,
+                BigInt(ledgerEntry.amount),
+                vault.tokenAddress,
               );
+              await this.prisma.vault.update({
+                where: { id: vault.id },
+                data: {
+                  status: VaultStatus.FUNDED,
+                  isFrozen: false,
+                  frozenReason: null,
+                } as any,
+              });
             } else {
               this.logger.log(
                 `Vault ${vault.id} has no address yet (Guest Freelancer). Deferring on-chain funding until acceptance.`,
               );
               await this.prisma.vault.update({
                 where: { id: vault.id },
-                data: { status: VaultStatus.FUNDED },
+                data: {
+                  status: VaultStatus.FUNDED,
+                  isFrozen: false,
+                  frozenReason: null,
+                } as any,
               });
             }
           } catch (error) {
@@ -119,6 +152,7 @@ export class WebhooksService {
               `Failed to auto-deposit to vault ${vault.vaultAddress}:`,
               error,
             );
+            throw error;
           }
         } else {
           this.logger.warn(
@@ -183,13 +217,41 @@ export class WebhooksService {
 
     const vault = await this.prisma.vault.findUnique({
       where: { id: ledgerEntry.vaultId! },
+      include: { client: { include: { wallet: true } } },
     });
 
-    if (vault && vault.status === VaultStatus.DRAFT) {
-      await this.prisma.vault.update({
-        where: { id: vault.id },
-        data: { status: VaultStatus.FUNDED },
-      });
+    if (vault && (vault.status === VaultStatus.DRAFT || vault.status === VaultStatus.FUNDED)) {
+
+      if (vault.client?.wallet?.address) {
+        try {
+          if (vault.vaultAddress) {
+            this.logger.log(`Automatically depositing ${ledgerEntry.amount} ${vault.tokenSymbol} into Vault Contract ${vault.vaultAddress}`);
+            await this.blockchainService.depositToVault(vault.vaultAddress, BigInt(ledgerEntry.amount), vault.tokenAddress);
+            
+            await this.prisma.vault.update({
+              where: { id: vault.id },
+              data: {
+                status: VaultStatus.FUNDED,
+                isFrozen: false,
+                frozenReason: null,
+              } as any,
+            });
+          } else {
+            this.logger.log(`Vault ${vault.id} has no address yet (Guest Freelancer). Deferring settlement.`);
+            await this.prisma.vault.update({
+              where: { id: vault.id },
+              data: {
+                status: VaultStatus.FUNDED,
+                isFrozen: false,
+                frozenReason: null,
+              } as any,
+            });
+          }
+        } catch (error) {
+          this.logger.error(`Failed to auto-deposit to vault ${vault.vaultAddress}:`, error);
+          throw error;
+        }
+      }
 
       // Invalidate cache
       const keys = [`vault:${vault.id}`, `vaults:client:${vault.clientId}`];

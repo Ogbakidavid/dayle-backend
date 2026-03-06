@@ -62,7 +62,8 @@ describe('DisputesService Adjudication', () => {
       id: 'vault-1',
       freelancerId: 'freelancer-1',
       clientId: 'client-1',
-      totalAmount: 1000,
+      tokenDecimals: 18,
+      totalAmount: 1000000000000000000000n,
     },
   };
 
@@ -87,7 +88,7 @@ describe('DisputesService Adjudication', () => {
       data: expect.objectContaining({
         type: LedgerEntryType.RELEASE,
         userId: 'freelancer-1',
-        amount: 1000,
+        amount: 1000000000000000000000n,
       }),
     });
     expect(mockPrisma.dispute.update).toHaveBeenCalledWith({
@@ -111,7 +112,7 @@ describe('DisputesService Adjudication', () => {
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 1000,
+        amount: 1000000000000000000000n,
       }),
     });
   });
@@ -133,7 +134,7 @@ describe('DisputesService Adjudication', () => {
       data: expect.objectContaining({
         type: LedgerEntryType.RELEASE,
         userId: 'freelancer-1',
-        amount: 400,
+        amount: 400000000000000000000n,
       }),
     });
     // Refund 600 to client
@@ -141,7 +142,7 @@ describe('DisputesService Adjudication', () => {
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 600,
+        amount: 600000000000000000000n,
       }),
     });
   });

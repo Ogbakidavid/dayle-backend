@@ -45,7 +45,31 @@ export class PartnaService {
   }
 
   /**
-   * ONRAMP: Create a voucher for collections
+   * ONRAMP: Create a one-time virtual account for collections (v1 style)
+   */
+  async createCollection(params: {
+    amount: number;
+    currency: string;
+    customerEmail: string;
+    customerName: string;
+    merchantReference?: string;
+  }) {
+    // Note: the v1 /collect endpoint is often the most direct for one-time bank details
+    return this.request('/collect', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: params.amount,
+        currency: params.currency,
+        customerEmail: params.customerEmail,
+        customerName: params.customerName,
+        merchantReference: params.merchantReference,
+        onramp: true,
+      }),
+    });
+  }
+
+  /**
+   * ONRAMP: Create a voucher payment link (v2 checkout style)
    */
   async createCollectionVoucher(
     amount: number,
@@ -75,9 +99,39 @@ export class PartnaService {
   }
 
   /**
+   * ONRAMP: Automated crypto delivery (Redeem & Withdraw)
+   */
+  async redeemAndWithdraw(params: {
+    voucherCode: string;
+    walletAddress: string;
+    network: string;
+    token: string;
+  }) {
+    // This endpoint redeems the voucher and pushes crypto to a wallet in one call
+    return this.request('/voucher/redeem-withdraw', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        voucherCode: params.voucherCode,
+        address: params.walletAddress,
+        network: params.network, // e.g. 'celo'
+        token: params.token, // e.g. 'cUSD'
+      }),
+    });
+  }
+
+  /**
+   * OFFRAMP: Get supported banks
+   */
+  async getBanks(currency: string = 'NGN') {
+    return this.request(`/banks?currency=${currency}`);
+  }
+
+  /**
    * OFFRAMP: Resolve bank account before payout
    */
   async resolveBankAccount(bankCode: string, accountNumber: string) {
+    // Some docs specify /.bank/.resolve while others use /resolve-bank-account
+    // We'll stick to the current working one but ensure it's exported for the controller
     return this.request('/resolve-bank-account', {
       method: 'POST',
       body: JSON.stringify({

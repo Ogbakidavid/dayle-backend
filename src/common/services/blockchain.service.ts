@@ -90,23 +90,6 @@ export class BlockchainService implements OnModuleInit {
       this.logger.log(
         `Initialized Treasury Wallet: ${this.treasuryWallet.address}`,
       );
-
-      // Initialize cUSD Contract from environment (Sepolia Testnet)
-      const cusdAddress = this.configService.get<string>('CUSD_TOKEN_ADDRESS');
-      if (!cusdAddress) {
-        this.logger.error('CUSD_TOKEN_ADDRESS is missing from .env');
-      } else {
-        const erc20Abi = [
-          'function transfer(address to, uint256 value) public returns (bool)',
-          'function balanceOf(address owner) view returns (uint256)',
-          'function mint(address to, uint256 amount) public',
-        ];
-        this.cusdContract = new ethers.Contract(
-          cusdAddress,
-          erc20Abi,
-          this.treasuryWallet,
-        );
-      }
     } else {
       this.logger.warn(
         'TREASURY_PRIVATE_KEY is missing. Fiat-to-crypto auto-funding will fail.',
@@ -131,8 +114,8 @@ export class BlockchainService implements OnModuleInit {
       this.logger.log('Using WebSocket subscriptions for events.');
       this.factoryContract.on(
         'VaultCreated',
-        async (vaultAddress, client, freelancer, amount, event) => {
-          this.logger.log(`Blockchain: New vault created at ${vaultAddress}`);
+        async (vaultAddress, client, freelancer, token, amount, event) => {
+          this.logger.log(`Blockchain: New vault created at ${vaultAddress} with token ${token}`);
           this.listenToVault(vaultAddress);
         },
       );
@@ -183,8 +166,9 @@ export class BlockchainService implements OnModuleInit {
                 try {
                   const event = evt as ethers.EventLog;
                   const vaultAddress = event.args[0] as string;
+                  const token = event.args[3] as string;
                   this.logger.log(
-                    `Blockchain (polled): New vault created at ${vaultAddress}`,
+                    `Blockchain (polled): New vault created at ${vaultAddress} with token ${token}`,
                   );
                   this.listenToVault(vaultAddress);
                 } catch (e) {
@@ -219,16 +203,17 @@ export class BlockchainService implements OnModuleInit {
                 for (const evt of depositedEvents) {
                   const event = evt as ethers.EventLog;
                   const amount = event.args[1] as bigint;
-                  this.logger.log(
-                    `Blockchain (polled): Deposited ${ethers.formatUnits(amount, 18)} cUSD into ${vaultAddress}`,
-                  );
-
-                  // replicate existing handler logic
+                  
+                  // Handle handles deposit
                   void (async () => {
-                    const vault = await this.prisma.vault.findUnique({
+                    const vault = await (this.prisma.vault.findUnique as any)({
                       where: { vaultAddress },
                     });
                     if (!vault) return;
+
+                    this.logger.log(
+                        `Blockchain (polled): Deposited ${ethers.formatUnits(amount, vault.tokenDecimals)} ${vault.tokenSymbol || 'token'} into ${vaultAddress}`,
+                    );
 
                     const pendingEntry =
                       await this.prisma.ledgerEntry.findFirst({
@@ -318,14 +303,14 @@ export class BlockchainService implements OnModuleInit {
 
       // Deposit Event (Client funded)
       vaultContract.on('Deposited', async (from, amount, newBalance, event) => {
-        this.logger.log(
-          `Blockchain: Deposited ${ethers.formatUnits(amount, 18)} cUSD into ${vaultAddress}`,
-        );
-
-        const vault = await this.prisma.vault.findUnique({
+        const vault = await (this.prisma.vault.findUnique as any)({
           where: { vaultAddress },
         });
         if (!vault) return;
+
+        this.logger.log(
+          `Blockchain: Deposited ${ethers.formatUnits(amount, vault.tokenDecimals)} ${vault.tokenSymbol || 'token'} into ${vaultAddress}`,
+        );
 
         const pendingEntry = await this.prisma.ledgerEntry.findFirst({
           where: {
@@ -386,11 +371,15 @@ export class BlockchainService implements OnModuleInit {
    * Transfer testnet cUSD from the Treasury Wallet to a specific address.
    * Used to bridge Fiat webhooks to Crypto escrows entirely on the backend.
    */
-  public async transferTestnetCusd(
+  /**
+   * Used to bridge Fiat webhooks to Crypto escrows entirely on the backend.
+   */
+  public async transferTestnetToken(
     toAddress: string,
-    amountUSD: number,
+    amountWei: bigint,
+    tokenAddress: string,
   ): Promise<string> {
-    if (!this.treasuryWallet || !this.cusdContract) {
+    if (!this.treasuryWallet) {
       throw new Error(
         'Treasury Wallet not configured. Cannot process local bridge transfer.',
       );
@@ -398,21 +387,30 @@ export class BlockchainService implements OnModuleInit {
 
     try {
       this.logger.log(
-        `Initiating Treasury transfer of ${amountUSD} cUSD to ${toAddress}`,
+        `Initiating Treasury transfer of ${amountWei} atomic units of token ${tokenAddress} to ${toAddress}`,
       );
-      const amountWei = ethers.parseUnits(amountUSD.toString(), 18);
+
+      const erc20Abi = [
+        'function transfer(address to, uint256 value) public returns (bool)',
+        'function balanceOf(address owner) view returns (uint256)',
+      ];
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        erc20Abi,
+        this.treasuryWallet,
+      );
 
       // Check Balance First
-      const balance = await this.cusdContract.balanceOf(
+      const balance = await tokenContract.balanceOf(
         this.treasuryWallet.address,
       );
       if (balance < amountWei) {
         throw new Error(
-          `Treasury Wallet has insufficient cUSD balance. Need ${amountUSD}, have ${ethers.formatUnits(balance, 18)}`,
+          `Treasury Wallet has insufficient token balance. Need ${amountWei}, have ${balance}`,
         );
       }
 
-      const tx = await this.cusdContract.transfer(toAddress, amountWei);
+      const tx = await tokenContract.transfer(toAddress, amountWei);
       this.logger.log(
         `Transfer transaction sent: ${tx.hash}. Waiting for confirmation...`,
       );
@@ -423,7 +421,7 @@ export class BlockchainService implements OnModuleInit {
       return receipt.hash;
     } catch (error) {
       this.logger.error(
-        `Error transferring testnet cUSD to ${toAddress}:`,
+        `Error transferring testnet token to ${toAddress}:`,
         error,
       );
       throw error;
@@ -437,6 +435,7 @@ export class BlockchainService implements OnModuleInit {
     clientAddress: string,
     freelancerAddress: string,
     amountUSD: string,
+    tokenAddress: string,
   ): Promise<{ vaultAddress: string; txHash: string }> {
     if (!this.treasuryWallet) {
       throw new Error('Treasury Wallet not configured. Cannot deploy vault.');
@@ -454,15 +453,21 @@ export class BlockchainService implements OnModuleInit {
       const factoryWithSigner = this.factoryContract.connect(
         this.treasuryWallet,
       ) as any;
-      const amountWei = ethers.parseUnits(amountUSD, 18);
+      const erc20Interface = new ethers.Interface([
+        'function decimals() view returns (uint8)',
+      ]);
+      const tokenContract = new ethers.Contract(tokenAddress, erc20Interface, this.provider);
+      const decimals = await tokenContract.decimals();
+      const amountWei = ethers.parseUnits(amountUSD, decimals);
 
-      // Call createVaultFor(address client, address freelancer, uint256 amount)
+      // Call createVaultFor(address client, address freelancer, address token, uint256 amount)
       this.logger.log(
-        `Calling createVaultFor: Client=${clientAddress}, Freelancer=${freelancerAddress}`,
+        `Calling createVaultFor: Client=${clientAddress}, Freelancer=${freelancerAddress}, Token=${tokenAddress}`,
       );
       const tx = await factoryWithSigner.createVaultFor(
         clientAddress,
         freelancerAddress,
+        tokenAddress,
         amountWei,
       );
       this.logger.log(`Vault deployment transaction sent: ${tx.hash}`);
@@ -496,37 +501,44 @@ export class BlockchainService implements OnModuleInit {
   }
 
   /**
-   * Deposit Mock cUSD directly into a specific Vault from the Treasury (Arbiter relayer)
+   * Deposit Mock token directly into a specific Vault from the Treasury (Arbiter relayer)
    */
   public async depositToVault(
     vaultAddress: string,
-    amountUSD: number,
+    amountWei: bigint,
+    tokenAddress: string,
   ): Promise<string> {
-    if (!this.treasuryWallet || !this.cusdContract) {
+    if (!this.treasuryWallet) {
       throw new Error(
-        'Treasury/Arbiter Wallet or cUSD contract not configured.',
+        'Treasury/Arbiter Wallet not configured.',
       );
     }
 
     try {
       this.logger.log(
-        `Backend funding vault ${vaultAddress} with ${amountUSD} cUSD using sponsored gas...`,
+        `Backend funding vault ${vaultAddress} with ${amountWei} atomic units using sponsored gas...`,
       );
-      const amountWei = ethers.parseUnits(amountUSD.toString(), 18);
 
-      // 1. Ensure Treasury/Arbiter has enough cUSD to fund this (Minting for testing)
-      // Since it's a mock token, we can just mint more if needed
-      this.logger.log(`Minting ${amountUSD} cUSD to Arbiter for funding...`);
-      const mintTx = await (
-        this.cusdContract.connect(this.treasuryWallet) as any
-      ).mint(this.treasuryWallet.address, amountWei);
+      const erc20Abi = [
+        'function approve(address spender, uint256 value) public returns (bool)',
+        'function mint(address to, uint256 amount) public',
+      ];
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        erc20Abi,
+        this.treasuryWallet,
+      );
+
+      // 1. Ensure Treasury/Arbiter has enough tokens to fund this (Minting for testing)
+      // Since it's a mock token on testnet, we can just mint more if needed
+      this.logger.log(`Minting ${amountWei} tokens to Arbiter for funding...`);
+      const mintTx = await tokenContract.mint(this.treasuryWallet.address, amountWei);
       await mintTx.wait();
 
-      // 2. Send funds to vault
-      const transferTx = await (
-        this.cusdContract.connect(this.treasuryWallet) as any
-      ).transfer(vaultAddress, amountWei);
-      await transferTx.wait();
+      // 2. Approve the Vault to spend Treasury tokens
+      this.logger.log(`Approving Vault ${vaultAddress} to spend Arbiter tokens...`);
+      const approveTx = await tokenContract.approve(vaultAddress, amountWei);
+      await approveTx.wait();
 
       // 3. Call deposit() on the vault (Sponsored as Arbiter)
       const vaultContract = new ethers.Contract(

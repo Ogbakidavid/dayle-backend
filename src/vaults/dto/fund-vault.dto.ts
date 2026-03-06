@@ -8,6 +8,7 @@ export class FundVaultDto {
   @IsOptional()
   paymentDetails: any;
 
-  @IsUUID()
-  idempotencyKey: string;
+  @IsEnum(['USD', 'NGN'])
+  @IsOptional()
+  currency?: 'USD' | 'NGN';
 }

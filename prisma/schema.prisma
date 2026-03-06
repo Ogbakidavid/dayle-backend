@@ -94,9 +94,9 @@ model Vault {
   id            String         @id @default(uuid())
   title         String
   description   String?
-  type          String
+  type          VaultType      @default(FIXED_PRICE)
   status        VaultStatus    @default(DRAFT)
-  totalAmount   Float
+  totalAmount   BigInt
   clientId      String
   freelancerId  String?
   isFrozen      Boolean        @default(false)
@@ -104,8 +104,12 @@ model Vault {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   vaultAddress  String?        @unique
-  amount        Float          @default(0)
-  deliverables  Json           @default("[]")
+  tokenAddress  String
+  tokenSymbol   String?
+  tokenDecimals Int
+  chainId       Int
+  amount        BigInt         @default(0)
+  deliverables  Deliverable[]
   disputes      Dispute[]
   invites       Invite[]
   ledgerEntries LedgerEntry[]
@@ -118,6 +122,18 @@ model Vault {
   @@index([freelancerId])
   @@index([status])
   @@index([createdAt])
+}
+
+model Deliverable {
+  id          String   @id @default(uuid())
+  vaultId     String
+  title       String
+  description String?
+  status      String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, DISPUTED
+  vault       Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  submissions Submission[] @relation("SubmissionDeliverables")
+
+  @@index([vaultId])
 }
 
 model Submission {
@@ -133,7 +149,7 @@ model Submission {
   fileSize          Int?
   fileMime          String?
   vaultId           String
-  deliverableIds    Json     @default("[]")
+  deliverables      Deliverable[] @relation("SubmissionDeliverables")
   deliverableStatus Json?
   vault             Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
 
@@ -201,7 +217,7 @@ model LedgerEntry {
   userId      String
   vaultId     String?
   type        LedgerEntryType
-  amount      Float
+  amount      BigInt
   currency    String            @default("USD")
   status      TransactionStatus @default(PENDING)
   description String
@@ -289,7 +305,7 @@ model RefundRequest {
   id            String              @id @default(uuid())
   vaultId       String              @unique
   clientId      String
-  amount        Float
+  amount        BigInt
   payoutMethod  String
   payoutDetails Json
   status        RefundRequestStatus @default(PENDING)
@@ -310,6 +326,10 @@ enum VaultStatus {
   REFUNDED
   DISPUTED
   CANCELLED
+}
+
+enum VaultType {
+  FIXED_PRICE
 }
 
 enum DisputeStatus {

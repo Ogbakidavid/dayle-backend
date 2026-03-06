@@ -149,7 +149,7 @@ export class AuthService {
       // Get the embedded wallet address from Privy
       const embeddedWallet = linkedAccounts.find(
         (account: any) =>
-          account.type === 'wallet' && account.walletClientType === 'privy',
+          account.type === 'wallet' && account.wallet_client_type === 'privy',
       );
       const walletAddress = embeddedWallet
         ? (embeddedWallet as any).address
@@ -200,14 +200,20 @@ export class AuthService {
       });
 
       if (!existingWallet) {
-        const linkedAccounts = privyUser.linkedAccounts || [];
         const embeddedWallet = linkedAccounts.find(
           (account: any) =>
-            account.type === 'wallet' && account.walletClientType === 'privy',
+            account.type === 'wallet' && account.wallet_client_type === 'privy',
         );
-        const walletAddress = embeddedWallet
+        
+        let walletAddress = embeddedWallet
           ? (embeddedWallet as any).address
-          : `pending_${privyDid}`;
+          : null;
+
+        // If still no address but user is social/email, it's likely pending creation
+        // Ensure 'pending' wallets are only created if no address is available
+        if (!walletAddress) {
+          walletAddress = `pending_${privyDid}`;
+        }
 
         await this.prisma.wallet.create({
           data: {
@@ -228,6 +234,30 @@ export class AuthService {
         where: { id: user.id },
         include: { wallet: true },
       });
+    } else if (user.wallet && user.wallet.address.startsWith('pending_')) {
+      // If user has a pending wallet, check if Privy now has a real address
+      console.log(
+        `[privyLogin] User ${user.id} has pending wallet ${user.wallet.address}. Checking for real address...`,
+      );
+      const embeddedWallet = linkedAccounts.find(
+        (account: any) =>
+          account.type === 'wallet' && account.wallet_client_type === 'privy',
+      );
+
+      if (embeddedWallet && (embeddedWallet as any).address) {
+        const realAddress = (embeddedWallet as any).address;
+        console.log(`[privyLogin] Found real address: ${realAddress}. Updating...`);
+        await this.prisma.wallet.update({
+          where: { id: user.wallet.id },
+          data: { address: realAddress },
+        });
+
+        // Refresh user object
+        user = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          include: { wallet: true },
+        });
+      }
     }
 
     if (!user) {
@@ -252,8 +282,13 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
 
-    await this.prisma.session.create({
-      data: {
+    await this.prisma.session.upsert({
+      where: { accessToken: accessTokenJwt },
+      update: {
+        refreshToken: refreshTokenJwt,
+        expiresAt,
+      },
+      create: {
         userId: user.id,
         accessToken: accessTokenJwt,
         refreshToken: refreshTokenJwt,

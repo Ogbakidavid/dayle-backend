@@ -49,19 +49,46 @@ export class PaycrestService {
     customerEmail: string;
     reference: string;
     type: 'onramp' | 'offramp';
+    walletAddress?: string;
+    bankDetails?: {
+      account_number: string;
+      bank_code: string;
+      account_name: string;
+    };
   }) {
-    // Standard Paycrest order creation with mandatory fields for onramp/offramp
-    return this.request('/orders', {
+    const isOnramp = params.type === 'onramp';
+    
+    const recipient = isOnramp ? {
+      institution: 'WALLET',
+      accountIdentifier: params.walletAddress,
+      accountName: params.customerEmail,
+      currency: params.currency,
+      memo: params.reference,
+    } : {
+      institution: 'BANK', 
+      accountIdentifier: params.bankDetails?.account_number || 'MOCK_ACCOUNT',
+      accountName: params.bankDetails?.account_name || params.customerEmail,
+      currency: params.currency,
+      memo: params.reference,
+    };
+
+    const res = await this.request('/sender/orders', {
       method: 'POST',
       body: JSON.stringify({
         amount: params.amount,
-        currency: params.currency,
-        email: params.customerEmail,
+        token: 'CUSD', // Always cUSD tokens for Dayle
+        network: 'celo', // Celo network
+        rate: 1, // Exchange rate (mocked for now)
+        recipient,
         reference: params.reference,
-        type: params.type,
-        token: 'CUSD', // Target token for Dayle
-        network: 'CELO', // Target network for Dayle
       }),
     });
+
+    return {
+      id: res.data?.id || res.id,
+      receiveAddress: res.data?.receiveAddress || res.receiveAddress,
+      paymentUrl: res.data?.checkout_url || res.checkout_url || res.url,
+      status: res.data?.status || res.status,
+    };
   }
 }

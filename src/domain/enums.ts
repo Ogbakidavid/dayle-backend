@@ -10,10 +10,7 @@ export enum VaultStatus {
 }
 
 export enum VaultType {
-  DEVELOPMENT = 'development',
-  DESIGN = 'design',
-  CONTENT_AI = 'content_ai',
-  CONSULTING = 'consulting',
+  FIXED_PRICE = 'FIXED_PRICE',
 }
 
 export enum VerificationResult {

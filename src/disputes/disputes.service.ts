@@ -18,6 +18,7 @@ import {
   LedgerEntryType,
   TransactionStatus,
 } from '../domain/enums';
+import { ethers } from 'ethers';
 
 @Injectable()
 export class DisputesService {
@@ -25,8 +26,9 @@ export class DisputesService {
 
   async create(userId: string, role: UserRole, dto: CreateDisputeDto) {
     const prisma = this.prisma;
-    const vault = await prisma.vault.findUnique({
+    const vault = await (prisma.vault.findUnique as any)({
       where: { id: dto.vaultId },
+      include: { deliverables: true },
     });
 
     if (!vault) throw new NotFoundException('Vault not found');
@@ -217,9 +219,21 @@ export class DisputesService {
           data: { status: VaultStatus.REFUNDED as any },
         });
       } else if (outcome === DisputeResolutionOutcome.SPLIT) {
-        if (!splitAmount || splitAmount > amount) {
+
+        const decimals = (dispute.vault as any).tokenDecimals || 18;
+
+        const splitAmountBigInt = ethers.parseUnits(
+          splitAmount!.toString(), 
+          decimals
+        );
+
+        const vaultAmount = BigInt(amount);
+
+        if (splitAmountBigInt <= 0n || splitAmountBigInt > vaultAmount) {
           throw new BadRequestException('Invalid split amount');
         }
+
+        const refundAmount = vaultAmount - splitAmountBigInt;
 
         // Release splitAmount to freelancer
         await tx.ledgerEntry.create({
@@ -227,7 +241,7 @@ export class DisputesService {
             userId: dispute.vault.freelancerId!,
             vaultId: dispute.vaultId,
             type: LedgerEntryType.RELEASE,
-            amount: splitAmount,
+            amount: splitAmountBigInt,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution SPLIT (Release): ${notes}`,
             disputeId: id,
@@ -241,7 +255,7 @@ export class DisputesService {
             userId: dispute.vault.clientId,
             vaultId: dispute.vaultId,
             type: LedgerEntryType.REFUND,
-            amount: amount - splitAmount,
+            amount: refundAmount,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution SPLIT (Refund): ${notes}`,
             disputeId: id,

@@ -1,6 +1,7 @@
 import {
   IsNumber,
   IsObject,
+  IsString,
   IsUUID,
   Min,
   ValidateNested,
@@ -17,6 +18,9 @@ export class WithdrawDto {
   @ValidateNested()
   @Type(() => BankDetailsDto)
   bankDetails: BankDetailsDto;
+
+  @IsString()
+  currency: string;
 
   @IsUUID()
   idempotencyKey: string;

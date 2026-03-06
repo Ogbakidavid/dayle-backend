@@ -42,6 +42,7 @@ export class PaymentRouter {
     customerEmail: string;
     customerFullName?: string;
     country?: string;
+    walletAddress?: string;
   }) {
     const primary = this.getPrimaryProvider(params.currency, params.country);
     const secondary =
@@ -69,18 +70,46 @@ export class PaymentRouter {
 
   private async callOnramp(provider: PaymentProvider, params: any) {
     if (provider === PaymentProvider.PARTNA) {
-      const res = await this.partna.createCollectionVoucher(
-        params.amount,
-        params.currency,
-        params.reference,
-        params.customerEmail,
-        params.customerFullName,
-      );
-      return {
-        provider,
-        paymentUrl: res.pay_url,
-        providerRef: res.data?.id || res.id || params.reference,
-      };
+      // Use createCollection for a more automated/direct experience if currency is supported
+      try {
+        const res = await this.partna.createCollection({
+          amount: params.amount,
+          currency: params.currency,
+          customerEmail: params.customerEmail,
+          customerName: params.customerFullName || 'Dayle User',
+          merchantReference: params.reference,
+        });
+        
+        // Return bank details so the UI can display them directly
+        return {
+          provider,
+          bankDetails: res.data ? {
+            accountNumber: res.data.accountNumber,
+            bankName: res.data.bankName,
+            accountName: res.data.accountName,
+            amount: res.data.amount,
+            currency: res.data.currency,
+            reference: res.data.reference,
+          } : null,
+          paymentUrl: res.data?.paymentUrl || null,
+          providerRef: res.data?.reference || params.reference,
+        };
+      } catch (err) {
+        // Fallback to voucher link if /collect fails
+        this.logger.warn(`Partna /collect failed: ${err.message}. Falling back to /vouchers.`);
+        const res = await this.partna.createCollectionVoucher(
+          params.amount,
+          params.currency,
+          params.reference,
+          params.customerEmail,
+          params.customerFullName,
+        );
+        return {
+          provider,
+          paymentUrl: res.pay_url,
+          providerRef: res.data?.id || res.id || params.reference,
+        };
+      }
     } else {
       const res = await this.paycrest.createOrder({
         amount: params.amount,
@@ -88,10 +117,11 @@ export class PaymentRouter {
         customerEmail: params.customerEmail,
         reference: params.reference,
         type: 'onramp',
+        walletAddress: params.walletAddress,
       });
       return {
         provider,
-        paymentUrl: res.checkout_url || res.url,
+        paymentUrl: res.paymentUrl,
         providerRef: res.id || params.reference,
       };
     }
@@ -151,6 +181,7 @@ export class PaymentRouter {
         customerEmail: params.customerEmail,
         reference: params.reference,
         type: 'offramp',
+        bankDetails: params.bankDetails,
       });
       return {
         provider,

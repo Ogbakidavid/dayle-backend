@@ -42,13 +42,13 @@ export class AdminService {
       },
     });
 
-    const volumeMap = new Map<string, number>();
+    const volumeMap = new Map<string, bigint>();
     // Initialize map with last 6 months
     for (let i = 0; i < 6; i++) {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
       const monthName = d.toLocaleString('default', { month: 'short' });
-      volumeMap.set(monthName, 0);
+      volumeMap.set(monthName, BigInt(0));
     }
 
     recentVolumes.forEach((entry) => {
@@ -67,7 +67,7 @@ export class AdminService {
     return {
       totalUsers,
       activeVaults,
-      totalVolume: totalVolume._sum?.amount || 0,
+      totalVolume: totalVolume._sum?.amount || BigInt(0),
       pendingDisputes,
       volumeTrends,
     };
