@@ -11,6 +11,7 @@ import { RespondInviteDto } from './dto/respond-invite.dto';
 import { InviteStatus, VaultStatus, UserRole } from '../domain/enums';
 import * as crypto from 'crypto';
 import { BlockchainService } from '../common/services/blockchain.service';
+import { ethers } from 'ethers';
 
 import { RedisService } from '../common/redis/redis.service';
 
@@ -91,7 +92,10 @@ export class InvitesService {
       vault: {
         ...invite.vault,
         clientName: invite.vault.client.name,
-        // Since we removed 'AWAITING_FUNDING', any state other than DRAFT and CANCELLED is effectively funded
+        formattedTotalAmount: ethers.formatUnits(
+          invite.vault.totalAmount || invite.vault.amount,
+          6,
+        ),
         isFunded:
           invite.vault.status !== VaultStatus.DRAFT &&
           invite.vault.status !== VaultStatus.CANCELLED,
@@ -146,7 +150,19 @@ export class InvitesService {
       orderBy: { invitedAt: 'desc' },
     });
     this.logger.log(`Found ${invitations.length} pending invitations for ${email}`);
-    return invitations;
+    return invitations.map((invite) => ({
+      ...invite,
+      vault: {
+        ...invite.vault,
+        formattedTotalAmount: ethers.formatUnits(
+          invite.vault.totalAmount || invite.vault.amount,
+          6,
+        ),
+        isFunded:
+          invite.vault.status !== VaultStatus.DRAFT &&
+          invite.vault.status !== VaultStatus.CANCELLED,
+      },
+    }));
   }
 
   async respond(

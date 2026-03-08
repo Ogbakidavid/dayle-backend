@@ -20,6 +20,7 @@ import {
   LedgerEntryType,
   TransactionStatus,
 } from '../domain/enums';
+import { KycStatus } from '../domain/enums';
 import * as crypto from 'crypto';
 import { RedisService } from '../common/redis/redis.service';
 import { Prisma } from '@prisma/client';
@@ -94,21 +95,16 @@ export class VaultsService {
       dto.tokenDecimals,
     );
 
-    try {
-      this.logger.log(
-        `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}`,
-      );
-      const { vaultAddress } = await this.blockchainService.deployVault(
-        clientAddress,
-        finalFreelancerAddress,
-        dto.totalAmount.toString(), // deployVault takes string amount
-        dto.tokenAddress,
-      );
-      deployedVaultAddress = vaultAddress;
-    } catch (error) {
-      this.logger.error('Vault deployment failed', error);
-      // We keep it as DRAFT if deployment fails, so user can retry
-    }
+    this.logger.log(
+      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}`,
+    );
+    const { vaultAddress } = await this.blockchainService.deployVault(
+      clientAddress,
+      finalFreelancerAddress,
+      dto.totalAmount.toString(), // deployVault takes string amount
+      dto.tokenAddress,
+    );
+    deployedVaultAddress = vaultAddress;
 
     const vault = await (prisma.vault.create as any)({
       data: {
@@ -310,6 +306,14 @@ export class VaultsService {
       });
     }
 
+    const client = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (client?.kycStatus !== KycStatus.VERIFIED) {
+      throw new ForbiddenException({
+        code: 'KYC_REQUIRED',
+        message: 'You must complete KYC verification before funding a vault',
+      });
+    }
+
     if (vault.status !== VaultStatus.DRAFT && vault.status !== VaultStatus.FUNDED) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
@@ -366,10 +370,23 @@ export class VaultsService {
       this.logger.warn(
         `Onramp failed, falling back to mock provider for development: ${err.message}`,
       );
+      
+      const fiatAmount = Number(ethers.formatUnits(vault.totalAmount, vault.tokenDecimals));
+      const targetCurrency = dto.currency || 'USD';
+      const finalAmount = targetCurrency === 'NGN' ? fiatAmount * 1500 : fiatAmount;
+
       onrampResult = {
         provider: 'mock',
         paymentUrl: `/checkout/${id}/mock-payment?ref=${providerRef}`,
         providerRef,
+        bankDetails: dto.paymentMethod === 'bank' ? {
+          accountNumber: '0123456789',
+          bankName: 'Dayle Mock Bank',
+          accountName: 'Dayle Escrow (STAGING)',
+          amount: finalAmount,
+          currency: targetCurrency,
+          reference: providerRef,
+        } : null,
       };
     }
 
@@ -633,8 +650,8 @@ export class VaultsService {
       totalAmount: vault.totalAmount.toString(),
       amount: vault.amount.toString(),
       paidAmount: paidAmount.toString(),
-      formattedTotalAmount: ethers.formatUnits(vault.totalAmount, vault.tokenDecimals),
-      formattedPaidAmount: ethers.formatUnits(paidAmount, vault.tokenDecimals),
+      formattedTotalAmount: ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6),
+      formattedPaidAmount: ethers.formatUnits(paidAmount || BigInt(0), vault.tokenDecimals || 6),
       isFrozen: vault.isFrozen,
       frozenReason: vault.frozenReason,
       clientId: vault.clientId,

@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { ethers } from 'ethers';
 import {
   UserRole,
   VaultStatus,
@@ -67,9 +70,12 @@ export class AdminService {
     return {
       totalUsers,
       activeVaults,
-      totalVolume: totalVolume._sum?.amount || BigInt(0),
+      totalVolume: ethers.formatUnits(totalVolume._sum?.amount || BigInt(0), 6),
       pendingDisputes,
-      volumeTrends,
+      volumeTrends: volumeTrends.map(t => ({
+        month: t.month,
+        volume: ethers.formatUnits(t.volume, 6)
+      })),
     };
   }
 
@@ -124,10 +130,10 @@ export class AdminService {
     vaults.forEach((v) =>
       logs.push({
         id: `vault-${v.id}`,
-        event: v.status === 'FUNDED' ? 'VAULT_LOCK_CONFIRMED' : 'VAULT_CREATED',
-        desc: `Vault "${v.title}" ($${v.totalAmount}) - ${v.status}`,
+        event: v.status === VaultStatus.FUNDED ? 'VAULT_LOCK_CONFIRMED' : 'VAULT_CREATED',
+        desc: `Vault "${v.title}" (${ethers.formatUnits(v.totalAmount, 6)}) - ${v.status}`,
         time: v.createdAt,
-        type: v.status === 'FUNDED' ? 'SUCCESS' : 'INFO',
+        type: v.status === VaultStatus.FUNDED ? 'SUCCESS' : 'INFO',
       }),
     );
 
@@ -157,7 +163,7 @@ export class AdminService {
         logs.push({
           id: `ledger-${l.id}`,
           event: 'VAULT_LOCK_CONFIRMED',
-          desc: `Escrow funded via smart contract ($${l.amount})`,
+          desc: `Escrow funded via smart contract (${ethers.formatUnits(l.amount, 6)})`,
           time: l.createdAt,
           type: 'SUCCESS',
         }),
@@ -166,6 +172,20 @@ export class AdminService {
     return logs
       .sort((a, b) => b.time.getTime() - a.time.getTime())
       .slice(0, limit);
+  }
+  
+  async getDiditWebhookLogs(user: any) {
+    try {
+      const filePath = path.join(process.cwd(), 'webhook-logs.json');
+      const data = await fs.readFile(filePath, 'utf8');
+      const lines = data.split('\n').filter((line) => line.trim() !== '');
+      return lines.map((line) => JSON.parse(line)).reverse();
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
   }
 
   async getUsers(user: any) {
@@ -187,13 +207,18 @@ export class AdminService {
 
   async getVaults(user: any) {
     const prisma = this.prisma;
-    return prisma.vault.findMany({
+    const vaults = await prisma.vault.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         client: { select: { name: true } },
         freelancer: { select: { name: true } },
       },
     });
+
+    return vaults.map((v) => ({
+      ...v,
+      totalAmount: ethers.formatUnits(v.totalAmount, v.tokenDecimals),
+    }));
   }
 
   async getDisputes(user: any) {
@@ -229,13 +254,18 @@ export class AdminService {
 
   async getLedger(user: any) {
     const prisma = this.prisma;
-    return prisma.ledgerEntry.findMany({
+    const entries = await prisma.ledgerEntry.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { name: true, email: true } },
-        vault: { select: { title: true } },
+        vault: { select: { title: true, tokenDecimals: true } },
       },
     });
+
+    return entries.map((e) => ({
+      ...e,
+      amount: ethers.formatUnits(e.amount, e.vault?.tokenDecimals || 6),
+    }));
   }
 
   async resolveDispute(

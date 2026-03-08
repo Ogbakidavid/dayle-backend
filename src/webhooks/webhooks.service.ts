@@ -264,7 +264,7 @@ export class WebhooksService {
     }
   }
 
-  async handleDiditWebhook(payload: any, signature: string) {
+  async handleDiditWebhook(payload: any, signature: string, rawBody?: string) {
     this.logger.log(`Received Didit webhook: ${JSON.stringify(payload)}`);
 
     if (!signature) {
@@ -272,11 +272,9 @@ export class WebhooksService {
       return;
     }
 
-    // Try verifying signature. Note: Didit signature verification normally requires the raw string body.
-    // If JSON.stringify(payload) has different spacing than the raw body, verification might fail.
-    // If that happens, we will need to enable rawBody parsing in main.ts.
+    // Use rawBody for verification if available, as it's more reliable than JSON.stringify
     const isValid = this.diditService.verifySignature(
-      JSON.stringify(payload),
+      rawBody || JSON.stringify(payload),
       signature,
     );
     if (!isValid) {
@@ -313,9 +311,28 @@ export class WebhooksService {
     try {
       await this.prisma.user.update({
         where: { id: userId },
-        data: { kycStatus },
+        data: { 
+          kycStatus,
+          // If verified, ensure we have a KycData record to avoid "Not Provided" in Admin UI
+          ...(kycStatus === KycStatus.VERIFIED && {
+            kycData: {
+              upsert: {
+                create: {
+                  fullName: 'Didit Verified User',
+                  dateOfBirth: new Date(0), // Placeholder
+                  address: 'Verified via Didit Protocol',
+                  idDocumentUrl: 'didit://verified',
+                  idType: 'DIDIT_SESSION',
+                },
+                update: {
+                  reviewedAt: new Date(),
+                },
+              },
+            },
+          }),
+        },
       });
-      this.logger.log(`Updated user ${userId} KYC status to ${kycStatus}`);
+      this.logger.log(`Updated user ${userId} KYC status to ${kycStatus} and synchronized KycData`);
     } catch (error) {
       this.logger.error(
         `Failed to update user ${userId} KYC status. User may not exist.`,

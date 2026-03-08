@@ -43,9 +43,12 @@ export class LedgerService {
     );
 
     return {
-      available,
-      pending,
-      total: available + pending,
+      available: available.toString(),
+      pending: pending.toString(),
+      total: (available + pending).toString(),
+      formattedAvailable: ethers.formatUnits(available, 6), // Default to 6 decimals for USDC/USDT/CUSD
+      formattedPending: ethers.formatUnits(pending, 6),
+      formattedTotal: ethers.formatUnits(available + pending, 6),
     };
   }
 
@@ -99,7 +102,7 @@ export class LedgerService {
     const balance = await this.getBalance(userId, role);
     const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), 18); // Defaulting to 18 decimals for now
     
-    if (balance.available < withdrawAmountBigInt) {
+    if (BigInt(balance.available) < withdrawAmountBigInt) {
       throw new BadRequestException({
         code: 'INSUFFICIENT_FUNDS',
         message: 'Amount exceeds available balance',

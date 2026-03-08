@@ -66,6 +66,11 @@ export class AdminController {
     );
   }
 
+  @Get('webhooks/didit/logs')
+  async getDiditWebhookLogs(@Req() req: any) {
+    return this.adminService.getDiditWebhookLogs(req.user);
+  }
+
   @Patch('disputes/:id/resolve')
   async resolveDispute(
     @Req() req: any,

@@ -37,15 +37,15 @@ export class AuthController {
   ) {
     response.cookie('access_token', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true, // Required for sameSite: 'none'
+      sameSite: 'none', // Required for cross-site requests (localtunnel to ngrok)
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 
     response.cookie('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true, // Required for sameSite: 'none'
+      sameSite: 'none', // Required for cross-site requests (localtunnel to ngrok)
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
   }

@@ -14,7 +14,7 @@ dns.setDefaultResultOrder('ipv4first');
 };
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(cookieParser());
 
@@ -32,12 +32,32 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      process.env.FRONTEND_URL,
-      process.env.ADMIN_URL,
-    ].filter(Boolean),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        process.env.FRONTEND_URL,
+        process.env.ADMIN_URL,
+      ].filter(Boolean);
+
+      const isAllowed = allowedOrigins.includes(origin) || 
+                        origin.endsWith('.ngrok-free.dev') || 
+                        origin.endsWith('.trycloudflare.com') || 
+                        origin.endsWith('.loca.lt') ||
+                        origin.endsWith('.pinggy.link');
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
   });
 

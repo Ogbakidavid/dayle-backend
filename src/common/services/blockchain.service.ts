@@ -125,27 +125,37 @@ export class BlockchainService implements OnModuleInit {
       // HTTP polling: avoid contract.on which creates ephemeral JSON-RPC filters
       this.logger.log('Using HTTP block-polling + queryFilter for events.');
 
-      // Initialize last processed block to current block
       void (async () => {
-        try {
-          const current = await this.provider.getBlockNumber();
-          this.factoryLastProcessedBlock = current;
-          // initialize active vaults' last block to current
-          const activeVaults = await this.prisma.vault.findMany({
-            where: {
-              vaultAddress: { not: '' },
-              status: { notIn: [VaultStatus.CANCELLED] },
-            },
-            select: { vaultAddress: true },
-          });
-          for (const v of activeVaults) {
-            if (v.vaultAddress) {
-              this.activeVaults.add(v.vaultAddress);
-              this.vaultLastProcessedBlock.set(v.vaultAddress, current);
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+          try {
+            const current = await this.provider.getBlockNumber();
+            this.factoryLastProcessedBlock = current;
+            // initialize active vaults' last block to current
+            const activeVaults = await this.prisma.vault.findMany({
+              where: {
+                vaultAddress: { not: '' },
+                status: { notIn: [VaultStatus.CANCELLED] },
+              },
+              select: { vaultAddress: true },
+            });
+            for (const v of activeVaults) {
+              if (v.vaultAddress) {
+                this.activeVaults.add(v.vaultAddress);
+                this.vaultLastProcessedBlock.set(v.vaultAddress, current);
+              }
+            }
+            break; // Success!
+          } catch (e) {
+            attempts++;
+            if (attempts >= maxAttempts) {
+              this.logger.error('Error initializing block polling state after retries', e);
+            } else {
+              this.logger.warn(`Prisma init attempt ${attempts} failed, retrying in 5s...`);
+              await new Promise(resolve => setTimeout(resolve, 5000));
             }
           }
-        } catch (e) {
-          this.logger.error('Error initializing block polling state', e);
         }
       })();
 
@@ -467,8 +477,8 @@ export class BlockchainService implements OnModuleInit {
       const tx = await factoryWithSigner.createVaultFor(
         clientAddress,
         freelancerAddress,
-        tokenAddress,
         amountWei,
+        tokenAddress,
       );
       this.logger.log(`Vault deployment transaction sent: ${tx.hash}`);
 

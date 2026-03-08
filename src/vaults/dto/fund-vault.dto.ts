@@ -11,4 +11,7 @@ export class FundVaultDto {
   @IsEnum(['USD', 'NGN'])
   @IsOptional()
   currency?: 'USD' | 'NGN';
+
+  @IsOptional()
+  idempotencyKey?: string;
 }

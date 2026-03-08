@@ -94,7 +94,6 @@ model Vault {
   id            String         @id @default(uuid())
   title         String
   description   String?
-  type          VaultType      @default(FIXED_PRICE)
   status        VaultStatus    @default(DRAFT)
   totalAmount   BigInt
   clientId      String
@@ -103,12 +102,13 @@ model Vault {
   frozenReason  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  vaultAddress  String?        @unique
-  tokenAddress  String
-  tokenSymbol   String?
-  tokenDecimals Int
-  chainId       Int
   amount        BigInt         @default(0)
+  chainId       Int
+  tokenAddress  String
+  tokenDecimals Int
+  tokenSymbol   String?
+  vaultAddress  String?        @unique
+  type          VaultType      @default(FIXED_PRICE)
   deliverables  Deliverable[]
   disputes      Dispute[]
   invites       Invite[]
@@ -125,20 +125,20 @@ model Vault {
 }
 
 model Deliverable {
-  id          String   @id @default(uuid())
+  id          String       @id @default(uuid())
   vaultId     String
   title       String
   description String?
-  status      String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, DISPUTED
-  vault       Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  status      String       @default("PENDING")
+  vault       Vault        @relation(fields: [vaultId], references: [id], onDelete: Cascade)
   submissions Submission[] @relation("SubmissionDeliverables")
 
   @@index([vaultId])
 }
 
 model Submission {
-  id                String   @id @default(uuid())
-  submittedAt       DateTime @default(now())
+  id                String        @id @default(uuid())
+  submittedAt       DateTime      @default(now())
   submittedBy       String
   notes             String?
   filesJson         Json?
@@ -148,33 +148,33 @@ model Submission {
   fileHash          String?
   fileSize          Int?
   fileMime          String?
-  vaultId           String
-  deliverables      Deliverable[] @relation("SubmissionDeliverables")
   deliverableStatus Json?
-  vault             Vault    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  vaultId           String
+  vault             Vault         @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  deliverables      Deliverable[] @relation("SubmissionDeliverables")
 
   @@index([vaultId])
 }
 
 model Dispute {
-  id             String         @id @default(uuid())
-  vaultId        String
-  disputeType    DisputeType
-  reasonCode     String
-  openedByUserId String
-  openedByRole   UserRole
-  status         DisputeStatus  @default(OPEN)
-  description    String
-  resolution     String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  resolvedAt     DateTime?
-  deliverableId  String?
+  id               String         @id @default(uuid())
+  vaultId          String
+  disputeType      DisputeType
+  reasonCode       String
+  openedByUserId   String
+  openedByRole     UserRole
+  status           DisputeStatus  @default(OPEN)
+  description      String
+  resolution       String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  resolvedAt       DateTime?
+  deliverableId    String?
   deliverableTitle String?
-  openedBy       User           @relation(fields: [openedByUserId], references: [id])
-  vault          Vault          @relation(fields: [vaultId], references: [id])
-  events         DisputeEvent[]
-  evidence       Evidence[]
+  openedBy         User           @relation(fields: [openedByUserId], references: [id])
+  vault            Vault          @relation(fields: [vaultId], references: [id])
+  events           DisputeEvent[]
+  evidence         Evidence[]
 
   @@index([vaultId])
   @@index([status])
@@ -330,6 +330,9 @@ enum VaultStatus {
 
 enum VaultType {
   FIXED_PRICE
+  DEVELOPMENT
+  DESIGN
+  CONTENT_AI
 }
 
 enum DisputeStatus {
