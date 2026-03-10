@@ -19,6 +19,7 @@ import {
   UserRole,
   LedgerEntryType,
   TransactionStatus,
+  InviteStatus,
 } from '../domain/enums';
 import { KycStatus } from '../domain/enums';
 import * as crypto from 'crypto';
@@ -117,14 +118,14 @@ export class VaultsService {
         tokenDecimals: dto.tokenDecimals,
         chainId: dto.chainId,
         clientId: userId,
-        freelancerId: freelancerId, // Link if they exist
+        freelancerId: null, // Always start as null; linked only upon invitation acceptance
         status: VaultStatus.DRAFT, // Always start as DRAFT
         vaultAddress: deployedVaultAddress || null,
         deliverables: {
           create: (dto.deliverables || []).map((d) => ({
             title: d.title,
             description: d.description,
-            status: 'PENDING',
+            submissionType: d.submissionType || 'FILE',
           })),
         },
       },
@@ -135,13 +136,14 @@ export class VaultsService {
       },
     });
 
-    // 4. If freelancer is a guest (no user found), create an invite and notify them
-    if (dto.freelancerEmail && !freelancerId) {
+    // 4. Create a pending invite for the freelancer (always required for acceptance flow)
+    // The actual email will be sent post-funding via WebhooksService
+    if (dto.freelancerEmail) {
       try {
         this.logger.log(
-          `Freelancer ${dto.freelancerEmail} is a guest. Creating invitation...`,
+          `Creating pending invitation for ${dto.freelancerEmail}...`,
         );
-        const invite = await this.invitesService.create(
+        await this.invitesService.create(
           {
             vaultId: vault.id,
             email: dto.freelancerEmail,
@@ -149,22 +151,13 @@ export class VaultsService {
           },
           userId,
         );
-
-        await this.mailsService.sendInviteEmail(
-          dto.freelancerEmail,
-          client?.name || 'A client',
-          dto.title,
-          dto.totalAmount,
-          invite.token,
-        );
       } catch (error) {
         this.logger.error(
-          `Failed to create invite or send email for guest freelancer ${dto.freelancerEmail}`,
+          `Failed to create pending invite for guest freelancer ${dto.freelancerEmail}`,
           error,
         );
       }
     }
-
     if (dto.idempotencyKey) {
       await prisma.idempotencyRecord.create({
         data: {
@@ -377,7 +370,7 @@ export class VaultsService {
 
       onrampResult = {
         provider: 'mock',
-        paymentUrl: `/checkout/${id}/mock-payment?ref=${providerRef}`,
+        paymentUrl: `/checkout/${id}/${dto.paymentMethod === 'bank' ? 'bank' : 'card'}?ref=${providerRef}`,
         providerRef,
         bankDetails: dto.paymentMethod === 'bank' ? {
           accountNumber: '0123456789',
@@ -742,7 +735,10 @@ export class VaultsService {
     const updatedVault = await this.prisma.vault.update({
       where: { id },
       data: {
-        freelancerId: newFreelancerId,
+        // We no longer update freelancerId here immediately.
+        // It remains null (or its previous value) until the new freelancer accepts.
+        // freelancerId: newFreelancerId, 
+
       },
     });
 
@@ -762,8 +758,14 @@ export class VaultsService {
       }
     }
 
-    // 4. Send invitation if it's a new guest
-    if (!newFreelancerId) {
+    // 4. Update or send invitation
+    if (dto.freelancerEmail) {
+      // Deactivate any existing pending invites for this vault to avoid duplicates
+      await this.prisma.invite.updateMany({
+        where: { vaultId: id, status: InviteStatus.PENDING },
+        data: { status: InviteStatus.EXPIRED as any },
+      });
+
       const invite = await this.invitesService.create(
         {
           vaultId: id,
@@ -772,13 +774,19 @@ export class VaultsService {
         },
         userId,
       );
-      await this.mailsService.sendInviteEmail(
-        dto.freelancerEmail,
-        vault.client?.name || 'A client',
-        vault.title,
-        vault.totalAmount,
-        invite.token,
-      );
+
+      // Only send immediately if funded. If DRAFT, wait for funding webhook.
+      if (vault.status === VaultStatus.FUNDED) {
+        await this.mailsService.sendInviteEmail(
+          dto.freelancerEmail,
+          vault.client?.name || 'A client',
+          vault.title,
+          Number(ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6)),
+          invite.token,
+        );
+      } else {
+        this.logger.log(`Vault is in DRAFT. Post-funding webhook will send the invite to ${dto.freelancerEmail}`);
+      }
     }
 
     return updatedVault;

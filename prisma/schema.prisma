@@ -129,9 +129,10 @@ model Deliverable {
   vaultId     String
   title       String
   description String?
-  status      String       @default("PENDING")
-  vault       Vault        @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-  submissions Submission[] @relation("SubmissionDeliverables")
+  submissionType SubmissionType @default(FILE)
+  vault          Vault          @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  submissions    Submission[]   @relation("SubmissionDeliverables")
+
 
   @@index([vaultId])
 }
@@ -410,3 +411,10 @@ enum RefundRequestStatus {
   COMPLETED
   REJECTED
 }
+
+enum SubmissionType {
+  FILE
+  LINK
+  BOTH
+}
+

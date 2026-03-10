@@ -170,7 +170,12 @@ export class AdminService {
       );
 
     return logs
-      .sort((a, b) => b.time.getTime() - a.time.getTime())
+      .filter(log => log.time instanceof Date || !isNaN(Date.parse(log.time)))
+      .sort((a, b) => {
+        const timeA = a.time instanceof Date ? a.time.getTime() : new Date(a.time).getTime();
+        const timeB = b.time instanceof Date ? b.time.getTime() : new Date(b.time).getTime();
+        return timeB - timeA;
+      })
       .slice(0, limit);
   }
   

@@ -529,9 +529,11 @@ export class BlockchainService implements OnModuleInit {
         `Backend funding vault ${vaultAddress} with ${amountWei} atomic units using sponsored gas...`,
       );
 
+      // 1. Check if Treasury/Arbiter already has enough tokens
       const erc20Abi = [
         'function approve(address spender, uint256 value) public returns (bool)',
         'function mint(address to, uint256 amount) public',
+        'function balanceOf(address owner) view returns (uint256)',
       ];
       const tokenContract = new ethers.Contract(
         tokenAddress,
@@ -539,18 +541,32 @@ export class BlockchainService implements OnModuleInit {
         this.treasuryWallet,
       );
 
-      // 1. Ensure Treasury/Arbiter has enough tokens to fund this (Minting for testing)
-      // Since it's a mock token on testnet, we can just mint more if needed
-      this.logger.log(`Minting ${amountWei} tokens to Arbiter for funding...`);
-      const mintTx = await tokenContract.mint(this.treasuryWallet.address, amountWei);
-      await mintTx.wait();
+      const balance = await tokenContract.balanceOf(this.treasuryWallet.address);
+      this.logger.log(`Arbiter balance for token ${tokenAddress}: ${balance}`);
 
-      // 2. Approve the Vault to spend Treasury tokens
+      if (balance < amountWei) {
+        // 2. Try to mint if balance is insufficient
+        this.logger.log(`Insufficient balance. Attempting to mint ${amountWei} tokens to Arbiter for funding...`);
+        try {
+          const mintTx = await tokenContract.mint(this.treasuryWallet.address, amountWei);
+          await mintTx.wait();
+          this.logger.log(`Successfully minted tokens.`);
+        } catch (mintError: any) {
+          this.logger.error(`Failed to mint tokens: ${mintError.message}`);
+          throw new Error(
+            `Arbiter wallet ${this.treasuryWallet.address} has insufficient balance (${balance}) and could not mint tokens (${tokenAddress}). Please fund the Arbiter account manually.`,
+          );
+        }
+      } else {
+        this.logger.log(`Arbiter has sufficient balance, skipping mint.`);
+      }
+
+      // 3. Approve the Vault to spend Treasury tokens
       this.logger.log(`Approving Vault ${vaultAddress} to spend Arbiter tokens...`);
       const approveTx = await tokenContract.approve(vaultAddress, amountWei);
       await approveTx.wait();
 
-      // 3. Call deposit() on the vault (Sponsored as Arbiter)
+      // 4. Call deposit() on the vault (Sponsored as Arbiter)
       const vaultContract = new ethers.Contract(
         vaultAddress,
         VaultImplementationABI,

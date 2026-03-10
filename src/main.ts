@@ -48,9 +48,7 @@ async function bootstrap() {
 
       const isAllowed = allowedOrigins.includes(origin) || 
                         origin.endsWith('.ngrok-free.dev') || 
-                        origin.endsWith('.trycloudflare.com') || 
-                        origin.endsWith('.loca.lt') ||
-                        origin.endsWith('.pinggy.link');
+                        origin.endsWith('.netlify.app');
 
       if (isAllowed) {
         callback(null, true);

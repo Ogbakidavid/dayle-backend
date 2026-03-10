@@ -16,6 +16,7 @@ export class SubmitVaultDto {
     included: boolean;
     notes?: string;
     files?: Array<{ name: string; size: number }>;
+    link?: string;
   }>;
 
   @IsString()

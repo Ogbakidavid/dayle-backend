@@ -6,12 +6,17 @@ import {
   LedgerEntryType,
   VaultStatus,
   KycStatus,
+  UserRole,
+  InviteStatus,
 } from '../domain/enums';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { DiditService } from '../common/services/didit.service';
 import { RedisService } from '../common/redis/redis.service';
+import { InvitesService } from '../invites/invites.service';
+import { MailsService } from '../notifications/mails.service';
+import { ethers } from 'ethers';
 
 @Injectable()
 export class WebhooksService {
@@ -24,6 +29,8 @@ export class WebhooksService {
     private diditService: DiditService,
     private redisService: RedisService,
     private partna: PartnaService,
+    private invitesService: InvitesService,
+    private mailsService: MailsService,
   ) {}
 
   async handlePartnaWebhook(payload: any, signature: string) {
@@ -77,101 +84,111 @@ export class WebhooksService {
       return;
     }
 
-    await this.prisma.ledgerEntry.update({
-      where: { id: ledgerEntry.id },
-      data: { status: internalStatus },
-    });
+    // Determine if we should trigger crypto delivery
+    const isSuccess = status === 'success';
+    const isCollection = type === 'collection' || type === 'voucher';
 
-    // If it's a deposit and it's confirmed, update the vault status
-    if (
-      (type === 'collection' || type === 'voucher') &&
-      internalStatus === TransactionStatus.CONFIRMED
-    ) {
+    if (isSuccess && isCollection) {
       const vault = await this.prisma.vault.findUnique({
         where: { id: ledgerEntry.vaultId! },
         include: { client: { include: { wallet: true } } },
       });
 
-      if (vault && (vault.status === VaultStatus.DRAFT || vault.status === VaultStatus.FUNDED)) {
+      if (
+        vault &&
+        (vault.status === VaultStatus.DRAFT ||
+          vault.status === VaultStatus.FUNDED)
+      ) {
         this.logger.log(
-          `Triggering Fiat -> cUSD conversion for Vault ${vault.id} to Wallet ${vault.client?.wallet?.address}`,
+          `Triggering Fiat -> Crypto delivery for Vault ${vault.id}`,
         );
+
+        let depositSuccessful = false;
+        let blockchainTxHash: string | null = null;
 
         if (vault.client?.wallet?.address) {
           try {
             if (vault.vaultAddress && voucherCode) {
+              try {
+                this.logger.log(
+                  `Automatically redeeming voucher ${voucherCode} for Vault ${vault.vaultAddress}`,
+                );
+                await this.partna.redeemAndWithdraw({
+                  voucherCode,
+                  walletAddress: vault.vaultAddress!,
+                  network: 'celo',
+                  token: vault.tokenSymbol || 'cUSD',
+                });
+                depositSuccessful = true;
+              } catch (e) {
+                this.logger.warn(
+                  `Partna voucher redemption failed: ${e.message}. Falling back to manual blockchain deposit.`,
+                );
+              }
+            }
+
+            if (!depositSuccessful && vault.vaultAddress) {
               this.logger.log(
-                `Automatically redeeming voucher ${voucherCode} for Vault ${vault.vaultAddress}`,
+                `Manual deposit fallback for Vault ${vault.vaultAddress}.`,
               );
-              await this.partna.redeemAndWithdraw({
-                voucherCode,
-                walletAddress: vault.vaultAddress!,
-                network: 'celo',
-                token: vault.tokenSymbol || 'cUSD',
-              });
-              
-              await this.prisma.vault.update({
-                where: { id: vault.id },
-                data: {
-                  status: VaultStatus.FUNDED,
-                  isFrozen: false,
-                  frozenReason: null,
-                } as any,
-              });
-            } else if (vault.vaultAddress) {
-              // Fallback to manual deposit if no voucherCode in payload
-              this.logger.warn(`No voucherCode in Partna webhook. Falling back to manual blockchain deposit.`);
-              await this.blockchainService.depositToVault(
+              blockchainTxHash = await this.blockchainService.depositToVault(
                 vault.vaultAddress,
                 BigInt(ledgerEntry.amount),
                 vault.tokenAddress,
               );
-              await this.prisma.vault.update({
-                where: { id: vault.id },
-                data: {
-                  status: VaultStatus.FUNDED,
-                  isFrozen: false,
-                  frozenReason: null,
-                } as any,
-              });
-            } else {
+              depositSuccessful = true;
+            } else if (!vault.vaultAddress) {
               this.logger.log(
-                `Vault ${vault.id} has no address yet (Guest Freelancer). Deferring on-chain funding until acceptance.`,
+                `Vault ${vault.id} has no address yet (Guest Freelancer). Marking as Funded but without on-chain tx.`,
               );
-              await this.prisma.vault.update({
-                where: { id: vault.id },
-                data: {
-                  status: VaultStatus.FUNDED,
-                  isFrozen: false,
-                  frozenReason: null,
-                } as any,
-              });
+              depositSuccessful = true;
             }
           } catch (error) {
             this.logger.error(
-              `Failed to auto-deposit to vault ${vault.vaultAddress}:`,
-              error,
+              `Critical error during blockchain deposit for Vault ${vault.id}: ${error.message}`,
             );
-            throw error;
+            // We intentionally do NOT update the status to CONFIRMED or FUNDED here
+            // This leaves the Ledger Entry in PENDING so the user can see it didn't complete.
           }
-        } else {
-          this.logger.warn(
-            `Cannot fund vault ${vault.id} because the client has no associated wallet address.`,
-          );
         }
 
-        // IMPORTANT: Invalidate cache so UI reflects FUNDED status immediately
-        const keys = [
-          `vault:${vault.id}`,
-          `vaults:client:${vault.clientId}`,
-        ];
-        if (vault.freelancerId) {
-          keys.push(`vaults:freelancer:${vault.freelancerId}`);
-        }
-        for (const key of keys) {
-          await this.redisService.del(key);
+        if (depositSuccessful) {
+          // Both DB updates should be inside a transaction for consistency
+          await this.prisma.$transaction([
+            this.prisma.ledgerEntry.update({
+              where: { id: ledgerEntry.id },
+              data: {
+                status: TransactionStatus.CONFIRMED,
+                providerRef: blockchainTxHash || ledgerEntry.providerRef,
+              },
+            }),
+            this.prisma.vault.update({
+              where: { id: vault.id },
+              data: {
+                status: VaultStatus.FUNDED,
+                isFrozen: false,
+                frozenReason: null,
+              } as any,
+            }),
+          ]);
+
+          // Invalidate cache so UI reflects change
+          const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
+          if (vault.freelancerId) {
+            keys.push(`vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`);
+          }
+          await Promise.all(keys.map(key => this.redisService.del(key)));
+
+          this.logger.log(`Vault ${vault.id} successfully funded and ledger confirmed.`);
+          await this.handlePostFundingActions(vault.id);
         }
       }
+    } else {
+      // For non-deposit webhooks or failures, just update the ledger status normally
+      await this.prisma.ledgerEntry.update({
+        where: { id: ledgerEntry.id },
+        data: { status: internalStatus },
+      });
     }
   }
 
@@ -190,11 +207,7 @@ export class WebhooksService {
     }
 
     const { event, orderId, status, data } = payload;
-
-    if (event !== 'order.settled' && status !== 'settled') {
-      this.logger.log(`Ignoring Paycrest event: ${event} / status: ${status}`);
-      return;
-    }
+    const isSuccess = event === 'order.settled' || status === 'settled';
 
     const ledgerEntry = await this.prisma.ledgerEntry.findFirst({
       where: {
@@ -207,60 +220,78 @@ export class WebhooksService {
       return;
     }
 
-    await this.prisma.ledgerEntry.update({
-      where: { id: ledgerEntry.id },
-      data: {
-        status: TransactionStatus.CONFIRMED,
-        providerRef: data?.txHash || orderId,
-      },
-    });
+    if (isSuccess) {
+      const vault = await this.prisma.vault.findUnique({
+        where: { id: ledgerEntry.vaultId! },
+        include: { client: { include: { wallet: true } } },
+      });
 
-    const vault = await this.prisma.vault.findUnique({
-      where: { id: ledgerEntry.vaultId! },
-      include: { client: { include: { wallet: true } } },
-    });
+      if (
+        vault &&
+        (vault.status === VaultStatus.DRAFT ||
+          vault.status === VaultStatus.FUNDED)
+      ) {
+        this.logger.log(`Triggering Fiat -> Crypto delivery for Paycrest Vault ${vault.id}`);
 
-    if (vault && (vault.status === VaultStatus.DRAFT || vault.status === VaultStatus.FUNDED)) {
+        let depositSuccessful = false;
+        let blockchainTxHash = data?.txHash || orderId;
 
-      if (vault.client?.wallet?.address) {
-        try {
-          if (vault.vaultAddress) {
-            this.logger.log(`Automatically depositing ${ledgerEntry.amount} ${vault.tokenSymbol} into Vault Contract ${vault.vaultAddress}`);
-            await this.blockchainService.depositToVault(vault.vaultAddress, BigInt(ledgerEntry.amount), vault.tokenAddress);
-            
-            await this.prisma.vault.update({
-              where: { id: vault.id },
-              data: {
-                status: VaultStatus.FUNDED,
-                isFrozen: false,
-                frozenReason: null,
-              } as any,
-            });
-          } else {
-            this.logger.log(`Vault ${vault.id} has no address yet (Guest Freelancer). Deferring settlement.`);
-            await this.prisma.vault.update({
-              where: { id: vault.id },
-              data: {
-                status: VaultStatus.FUNDED,
-                isFrozen: false,
-                frozenReason: null,
-              } as any,
-            });
+        if (vault.client?.wallet?.address && vault.vaultAddress) {
+          try {
+            this.logger.log(
+              `Automatically depositing ${ledgerEntry.amount} into Vault Contract ${vault.vaultAddress}`,
+            );
+            blockchainTxHash = await this.blockchainService.depositToVault(
+              vault.vaultAddress,
+              BigInt(ledgerEntry.amount),
+              vault.tokenAddress,
+            );
+            depositSuccessful = true;
+          } catch (error) {
+            this.logger.error(
+              `Critical error during Paycrest blockchain deposit for Vault ${vault.id}: ${error.message}`,
+            );
           }
-        } catch (error) {
-          this.logger.error(`Failed to auto-deposit to vault ${vault.vaultAddress}:`, error);
-          throw error;
+        } else if (!vault.vaultAddress) {
+          this.logger.log(`Vault ${vault.id} has no address yet (Guest Freelancer). Marking as Funded but without on-chain tx.`);
+          depositSuccessful = true;
+        }
+
+        if (depositSuccessful) {
+          await this.prisma.$transaction([
+            this.prisma.ledgerEntry.update({
+              where: { id: ledgerEntry.id },
+              data: {
+                status: TransactionStatus.CONFIRMED,
+                providerRef: blockchainTxHash,
+              },
+            }),
+            this.prisma.vault.update({
+              where: { id: vault.id },
+              data: {
+                status: VaultStatus.FUNDED,
+                isFrozen: false,
+                frozenReason: null,
+              } as any,
+            }),
+          ]);
+
+          // Invalidate cache
+          const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
+          if (vault.freelancerId) {
+            keys.push(`vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`);
+          }
+          await Promise.all(keys.map(key => this.redisService.del(key)));
+
+          this.logger.log(`Paycrest Vault ${vault.id} successfully funded.`);
+          await this.handlePostFundingActions(vault.id);
         }
       }
-
-      // Invalidate cache
-      const keys = [`vault:${vault.id}`, `vaults:client:${vault.clientId}`];
-      if (vault.freelancerId) {
-        keys.push(`vaults:freelancer:${vault.freelancerId}`);
-      }
-      for (const key of keys) {
-        await this.redisService.del(key);
-      }
+    } else {
+      await this.prisma.ledgerEntry.update({
+        where: { id: ledgerEntry.id },
+        data: { status: TransactionStatus.FAILED },
+      });
     }
   }
 
@@ -284,28 +315,52 @@ export class WebhooksService {
       // For local testing, we might want to bypass strict verification, but in production this must reject.
     }
 
-    const { event, vendor_data, status } = payload;
-
-    if (!vendor_data) {
+    // Didit V3 sends decision and metadata objects. V2 sends event/vendor_data at top level.
+    const { event, vendor_data, status, decision, metadata } = payload;
+    
+    // Extract user ID (vendor_data) - V3 vs V2
+    const userId = metadata?.vendor_data || vendor_data;
+    const outcome = decision?.outcome;
+    
+    if (!userId) {
       this.logger.warn('Didit webhook received without vendor_data (userId)');
       return;
     }
 
-    const userId = vendor_data;
     let kycStatus = KycStatus.PENDING;
 
-    switch (event) {
-      case 'session.approved':
-        kycStatus = KycStatus.VERIFIED;
-        break;
-      case 'session.declined':
-      case 'session.failed':
-        kycStatus = KycStatus.REJECTED;
-        break;
-      default:
-        // Other events can be ignored
-        this.logger.log(`Ignoring Didit event: ${event}`);
-        return;
+    // Determine normalized status
+    const isApproved = 
+      event === 'session.approved' || 
+      outcome === 'approved' || 
+      status === 'Approved' || 
+      status === 'approved' ||
+      (payload.webhook_type === 'status.updated' && status === 'Approved');
+
+    const isRejected = 
+      event === 'session.declined' || 
+      event === 'session.failed' || 
+      outcome === 'declined' || 
+      outcome === 'failed' ||
+      status === 'Declined' ||
+      status === 'Failed' ||
+      status === 'declined' ||
+      status === 'failed';
+
+    const isResubmitted = 
+      event === 'session.resubmitted' ||
+      outcome === 'resubmitted' ||
+      status === 'Resubmitted' ||
+      status === 'resubmitted' ||
+      (payload.webhook_type === 'status.updated' && status === 'Resubmitted');
+
+    if (isApproved) {
+      kycStatus = KycStatus.VERIFIED;
+    } else if (isRejected || isResubmitted) {
+      kycStatus = KycStatus.REJECTED;
+    } else {
+      this.logger.log(`Ignoring or internal Didit event: ${event || payload.webhook_type || 'v3_event'}`);
+      return;
     }
 
     try {
@@ -313,13 +368,12 @@ export class WebhooksService {
         where: { id: userId },
         data: { 
           kycStatus,
-          // If verified, ensure we have a KycData record to avoid "Not Provided" in Admin UI
           ...(kycStatus === KycStatus.VERIFIED && {
             kycData: {
               upsert: {
                 create: {
                   fullName: 'Didit Verified User',
-                  dateOfBirth: new Date(0), // Placeholder
+                  dateOfBirth: new Date(0),
                   address: 'Verified via Didit Protocol',
                   idDocumentUrl: 'didit://verified',
                   idType: 'DIDIT_SESSION',
@@ -332,12 +386,54 @@ export class WebhooksService {
           }),
         },
       });
-      this.logger.log(`Updated user ${userId} KYC status to ${kycStatus} and synchronized KycData`);
+      this.logger.log(`Updated user ${userId} KYC status to ${kycStatus}`);
+
+      if (isResubmitted) {
+        await this.prisma.notification.create({
+          data: {
+            userId: userId,
+            type: 'kyc',
+            title: 'KYC Resubmission Needed',
+            message: 'Your identity verification requires you to resubmit or retake photos. Please try again.',
+            action: '/onboarding/kyc',
+            read: false,
+            timestamp: new Date(),
+          },
+        });
+      }
     } catch (error) {
-      this.logger.error(
-        `Failed to update user ${userId} KYC status. User may not exist.`,
-        error,
-      );
+      this.logger.error(`Failed to update user ${userId} KYC status.`, error);
+    }
+  }
+
+  private async handlePostFundingActions(vaultId: string) {
+    const vault = await this.prisma.vault.findUnique({
+      where: { id: vaultId },
+      include: { client: true }
+    });
+
+    if (!vault) return;
+
+    // Check if there's a pending invite for this vault
+    const invite = await this.prisma.invite.findFirst({
+      where: { vaultId: vault.id, status: InviteStatus.PENDING }
+    });
+
+    if (invite) {
+      try {
+        this.logger.log(`Vault funded. Sending invitation email to guest freelancer ${invite.email}...`);
+        const amount = Number(ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6));
+        
+        await this.mailsService.sendInviteEmail(
+          invite.email,
+          vault.client?.name || 'A client',
+          vault.title,
+          amount,
+          invite.token,
+        );
+      } catch (error) {
+         this.logger.error(`Failed to send post-funding invite to ${invite.email}`, error);
+      }
     }
   }
 }

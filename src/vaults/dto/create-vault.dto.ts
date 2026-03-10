@@ -13,7 +13,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { VaultType } from '../../domain/enums';
+import { VaultType, SubmissionType } from '../../domain/enums';
+
 
 export class CreateVaultDto {
   @IsString()
@@ -76,4 +77,9 @@ export class DeliverableDto {
   @MaxLength(500)
   @IsOptional()
   description?: string;
+
+  @IsEnum(SubmissionType)
+  @IsOptional()
+  submissionType?: SubmissionType;
 }
+
