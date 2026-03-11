@@ -46,40 +46,43 @@ export class ReconcilerService {
   }
 
   private async checkVaultIntegrity(vault: any) {
-    // 1. Calculate Ledger Balance
+    // 1. Calculate Ledger Balance using BigInt throughout
     const ledgerBalance = vault.ledgerEntries
-      .filter((e) => e.status === TransactionStatus.CONFIRMED)
-      .reduce((acc, entry) => {
-        if (entry.type === LedgerEntryType.DEPOSIT) return acc + entry.amount;
+      .filter((e: any) => e.status === TransactionStatus.CONFIRMED)
+      .reduce((acc: bigint, entry: any) => {
+        const amount = BigInt(entry.amount);
+        if (entry.type === LedgerEntryType.DEPOSIT) return acc + amount;
         if (
           entry.type === LedgerEntryType.RELEASE ||
           entry.type === LedgerEntryType.REFUND
         )
-          return acc - entry.amount;
+          return acc - amount;
         return acc;
-      }, 0);
+      }, BigInt(0));
 
     // 2. Check Requirement: Ledger Balance should match Vault Total (roughly)
-    // Note: In a real system, you'd check specific provider transaction statuses here too.
-    // For MVP, we ensure that if it's FUNDED, we have a confirmed DEPOSIT.
+    const totalAmount = BigInt(vault.totalAmount);
 
     const deposits = vault.ledgerEntries.filter(
-      (e) =>
+      (e: any) =>
         e.type === LedgerEntryType.DEPOSIT &&
         e.status === TransactionStatus.CONFIRMED,
     );
-    const totalDeposited = deposits.reduce((acc, e) => acc + e.amount, 0);
+    const totalDeposited = deposits.reduce(
+      (acc: bigint, e: any) => acc + BigInt(e.amount),
+      BigInt(0),
+    );
 
-    if (totalDeposited < vault.totalAmount) {
+    if (totalDeposited < totalAmount) {
       await this.freezeVault(
         vault.id,
-        `Funding Mismatch: Expected ${vault.totalAmount}, found ${totalDeposited}`,
+        `Funding Mismatch: Expected ${totalAmount}, found ${totalDeposited}`,
       );
       return;
     }
 
     // 3. Check for Anomalies (e.g. Negative Balance)
-    if (ledgerBalance < 0) {
+    if (ledgerBalance < BigInt(0)) {
       await this.freezeVault(
         vault.id,
         `Negative Balance Detected: ${ledgerBalance}`,

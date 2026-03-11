@@ -130,9 +130,8 @@ model Deliverable {
   title       String
   description String?
   submissionType SubmissionType @default(FILE)
-  vault          Vault          @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-  submissions    Submission[]   @relation("SubmissionDeliverables")
-
+  vault       Vault        @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  submissions Submission[] @relation("SubmissionDeliverables")
 
   @@index([vaultId])
 }
@@ -417,4 +416,3 @@ enum SubmissionType {
   LINK
   BOTH
 }
-

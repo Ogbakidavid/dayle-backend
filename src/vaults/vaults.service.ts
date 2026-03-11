@@ -90,19 +90,23 @@ export class VaultsService {
         ? this.configService.get<string>('ARBITER_ADDRESS')!
         : freelancerAddress;
 
-    // Convert totalAmount to BigInt (smallest units)
-    const totalAmountBigInt = ethers.parseUnits(
+    // Convert totalAmount to BigInt (smallest units) with 3% gross-up
+    // Logic: RequestedBudget = TotalAmount * 0.97 => TotalAmount = RequestedBudget / 0.97
+    // Using integer math to avoid precision issues: (Budget * 10000) / 9700
+    const budgetWei = ethers.parseUnits(
       dto.totalAmount.toString(),
       dto.tokenDecimals,
     );
+    const totalAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
+    const finalAmountString = ethers.formatUnits(totalAmountBigInt, dto.tokenDecimals);
 
     this.logger.log(
-      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}`,
+      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Budget: ${dto.totalAmount}, Gross-ed up Total: ${finalAmountString}`,
     );
     const { vaultAddress } = await this.blockchainService.deployVault(
       clientAddress,
       finalFreelancerAddress,
-      dto.totalAmount.toString(), // deployVault takes string amount
+      finalAmountString, // deployVault takes string amount
       dto.tokenAddress,
     );
     deployedVaultAddress = vaultAddress;
@@ -270,6 +274,9 @@ export class VaultsService {
       vaultResult.clientId !== userId &&
       vaultResult.freelancerId !== userId
     ) {
+      this.logger.warn(
+        `Access denied for vault ${id}: user ${userId} is neither client ${vaultResult.clientId} nor freelancer ${vaultResult.freelancerId}`,
+      );
       throw new ForbiddenException({
         code: 'UNAUTHORIZED',
         message: 'Not authorized',
