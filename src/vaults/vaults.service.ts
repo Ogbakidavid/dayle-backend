@@ -48,10 +48,10 @@ export class VaultsService {
     const prisma = this.prisma;
 
     if (dto.idempotencyKey) {
-      const existing = await prisma.idempotencyRecord.findUnique({
-        where: { key: dto.idempotencyKey },
-      });
-      if (existing) return existing.responseBody;
+      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      if (cachedResponse) {
+        return JSON.parse(cachedResponse);
+      }
     }
 
     // 1. Fetch Client info
@@ -163,17 +163,12 @@ export class VaultsService {
       }
     }
     if (dto.idempotencyKey) {
-      await prisma.idempotencyRecord.create({
-        data: {
-          key: dto.idempotencyKey as string,
-          userId,
-          endpoint: '/api/vaults',
-          requestHash: this.hashRequest(dto),
-          responseBody: vault as unknown as Prisma.InputJsonValue,
-          statusCode: 201,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-      });
+      const response = this.formatVault(vault);
+      await this.redis.set(
+        `idempotency:${dto.idempotencyKey}`,
+        JSON.stringify(response),
+        24 * 60 * 60, // 24 hours
+      );
     }
 
     await this.invalidateVaultCache(vault.id, userId, vault.freelancerId);
@@ -418,10 +413,12 @@ export class VaultsService {
     role: string,
   ) {
     const prisma = this.prisma;
-    const existing = await prisma.idempotencyRecord.findUnique({
-      where: { key: dto.idempotencyKey },
-    });
-    if (existing) return existing.responseBody;
+    if (dto.idempotencyKey) {
+      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      if (cachedResponse) {
+        return JSON.parse(cachedResponse);
+      }
+    }
 
     const vault = await prisma.vault.findUnique({
       where: { id: vaultId },
@@ -460,6 +457,15 @@ export class VaultsService {
     });
 
     await this.invalidateVaultCache(vaultId, vault.clientId, userId);
+    
+    if (dto.idempotencyKey) {
+      await this.redis.set(
+        `idempotency:${dto.idempotencyKey}`,
+        JSON.stringify(result),
+        24 * 60 * 60,
+      );
+    }
+
     return result;
   }
 
@@ -470,10 +476,12 @@ export class VaultsService {
     role: string,
   ) {
     const prisma = this.prisma;
-    const existing = await prisma.idempotencyRecord.findUnique({
-      where: { key: dto.idempotencyKey },
-    });
-    if (existing) return existing.responseBody;
+    if (dto.idempotencyKey) {
+      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      if (cachedResponse) {
+        return JSON.parse(cachedResponse);
+      }
+    }
 
     const vault = await (this.prisma.vault.findUnique as any)({
       where: { id: vaultId },
@@ -519,8 +527,16 @@ export class VaultsService {
     }
 
     await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
-    return result;
+    
+    if (dto.idempotencyKey) {
+      await this.redis.set(
+        `idempotency:${dto.idempotencyKey}`,
+        JSON.stringify(result),
+        24 * 60 * 60,
+      );
+    }
 
+    return result;
   }
 
   async refund(
@@ -531,10 +547,12 @@ export class VaultsService {
   ) {
     const prisma = this.prisma;
     // Check idempotency
-    const existing = await prisma.idempotencyRecord.findUnique({
-      where: { key: dto.idempotencyKey },
-    });
-    if (existing) return existing.responseBody;
+    if (dto.idempotencyKey) {
+      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      if (cachedResponse) {
+        return JSON.parse(cachedResponse);
+      }
+    }
 
     const vault = await (this.prisma.vault.findUnique as any)({
       where: { id: vaultId },
@@ -565,24 +583,16 @@ export class VaultsService {
         },
       });
 
-      // Store idempotency record
-      await tx.idempotencyRecord.create({
-        data: {
-          key: dto.idempotencyKey as string,
-          userId,
-          endpoint: `/api/vaults/${vaultId}/refund`,
-          requestHash: this.hashRequest(dto),
-          responseBody: {
-            success: true,
-            ledgerEntry,
-          } as unknown as Prisma.InputJsonValue,
-          statusCode: 200,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-      });
-
       return { success: true, ledgerEntry, vault: updatedVault };
     });
+
+    if (dto.idempotencyKey) {
+      await this.redis.set(
+        `idempotency:${dto.idempotencyKey}`,
+        JSON.stringify(result),
+        24 * 60 * 60,
+      );
+    }
 
     // 2. Trigger on-chain refund if a vault address exists
     if (vault.vaultAddress) {
@@ -595,7 +605,6 @@ export class VaultsService {
 
     await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
     return result;
-
   }
 
   async updateStatus(

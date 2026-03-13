@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsGateway } from './notifications.gateway';
 
 describe('NotificationsController', () => {
   let controller: NotificationsController;
@@ -13,6 +14,10 @@ describe('NotificationsController', () => {
         NotificationsService,
         {
           provide: PrismaService,
+          useValue: {},
+        },
+        {
+          provide: NotificationsGateway,
           useValue: {},
         },
       ],

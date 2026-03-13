@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { RedisService } from '../redis/redis.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
     private jwtService: JwtService,
+    private redis: RedisService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,6 +41,16 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
         message: 'No authentication token provided',
+      });
+    }
+
+    // Check Redis blacklist
+    const isBlacklisted = await this.redis.get(`blacklist:${token}`);
+    if (isBlacklisted) {
+      console.log('[AuthGuard] Token is blacklisted');
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'This session has been revoked',
       });
     }
 

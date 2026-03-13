@@ -22,8 +22,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.redisClient = new Redis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false, // Prevents hanging operations when disconnected
+      maxRetriesPerRequest: null, // Critical for BullMQ and Upstash
+      enableOfflineQueue: false,
     });
 
     this.redisClient.on('connect', () => {
@@ -31,13 +31,27 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.redisClient.on('error', (err) => {
-      // Optional: keep logging minimal after first fail to avoid log spam
       this.logger.error('Redis connection error', err.message);
     });
   }
 
   onModuleDestroy() {
     this.redisClient.disconnect();
+  }
+
+  getClient(): Redis {
+    return this.redisClient;
+  }
+
+  async publish(channel: string, message: any): Promise<number> {
+    if (this.redisClient.status !== 'ready') return 0;
+    try {
+      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+      return await this.redisClient.publish(channel, payload);
+    } catch (err) {
+      this.logger.warn(`Redis PUBLISH failed for channel: ${channel}`);
+      return 0;
+    }
   }
 
   async get(key: string): Promise<string | null> {

@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private gateway: NotificationsGateway,
+  ) {}
 
   // Temporary in-memory storage for verification codes (not persisted in DB yet for simplicity)
   // In a real production app, these should be in Redis or a DB table with expiration
@@ -228,7 +232,7 @@ export class NotificationsService {
 
   // Test Helper
   async createTestNotification(userId: string) {
-    return this.prisma.notification.create({
+    const notification = await this.prisma.notification.create({
       data: {
         userId,
         type: 'general',
@@ -239,5 +243,10 @@ export class NotificationsService {
         read: false,
       },
     });
+
+    // Broadcast real-time
+    this.gateway.sendToUser(userId, 'notification', notification);
+
+    return notification;
   }
 }

@@ -180,6 +180,15 @@ export class WebhooksService {
           await Promise.all(keys.map(key => this.redisService.del(key)));
 
           this.logger.log(`Vault ${vault.id} successfully funded and ledger confirmed.`);
+          
+          // Publish real-time event
+          await this.redisService.publish('vault.funded', {
+            vaultId: vault.id,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+            status: VaultStatus.FUNDED,
+          });
+
           await this.handlePostFundingActions(vault.id);
         }
       }
@@ -284,6 +293,15 @@ export class WebhooksService {
           await Promise.all(keys.map(key => this.redisService.del(key)));
 
           this.logger.log(`Paycrest Vault ${vault.id} successfully funded.`);
+
+          // Publish real-time event
+          await this.redisService.publish('vault.funded', {
+            vaultId: vault.id,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+            status: VaultStatus.FUNDED,
+          });
+
           await this.handlePostFundingActions(vault.id);
         }
       }

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsGateway } from './notifications.gateway';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
@@ -11,6 +12,10 @@ describe('NotificationsService', () => {
         NotificationsService,
         {
           provide: PrismaService,
+          useValue: {},
+        },
+        {
+          provide: NotificationsGateway,
           useValue: {},
         },
       ],

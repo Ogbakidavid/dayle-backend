@@ -9,12 +9,15 @@ import { JwtService } from '@nestjs/jwt';
 import { PrivyService } from './privy.service';
 import { UserRole } from '../domain/enums';
 
+import { RedisService } from '../common/redis/redis.service';
+
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private privyService: PrivyService,
+    private redis: RedisService,
   ) {}
 
   async privyLogin(accessToken: string, role?: string) {
@@ -304,9 +307,28 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string) {
-    // In a real app, you might invalidate the refresh token in the DB
+  async logout(userId: string, token?: string) {
+    if (token) {
+      await this.blacklistToken(token);
+    }
+    await this.prisma.session.deleteMany({
+      where: { userId, accessToken: token },
+    });
     return { success: true };
+  }
+
+  private async blacklistToken(token: string) {
+    try {
+      const decoded = this.jwtService.decode(token) as any;
+      if (decoded && decoded.exp) {
+        const ttl = Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
+        if (ttl > 0) {
+          await this.redis.set(`blacklist:${token}`, '1', ttl);
+        }
+      }
+    } catch (err) {
+      // Ignore decode errors
+    }
   }
 
   async getCurrentUser(userId: string) {
@@ -346,13 +368,25 @@ export class AuthService {
   }
 
   async revokeSession(userId: string, sessionId: string) {
-    await this.prisma.session.deleteMany({
-      where: { id: sessionId, userId },
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
     });
+    if (session && session.userId === userId) {
+      await this.blacklistToken(session.accessToken);
+      await this.prisma.session.delete({
+        where: { id: sessionId },
+      });
+    }
     return { success: true };
   }
 
   async revokeAllSessions(userId: string) {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId },
+    });
+    for (const session of sessions) {
+      await this.blacklistToken(session.accessToken);
+    }
     const result = await this.prisma.session.deleteMany({
       where: { userId },
     });

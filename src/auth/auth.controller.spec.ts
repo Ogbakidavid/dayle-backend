@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrivyService } from './privy.service';
+import { RedisService } from '../common/redis/redis.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -23,6 +24,10 @@ describe('AuthController', () => {
         },
         {
           provide: PrivyService,
+          useValue: {},
+        },
+        {
+          provide: RedisService,
           useValue: {},
         },
       ],
