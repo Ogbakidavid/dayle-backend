@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { DisputesService } from './disputes.service';
+import { DisputeAiService } from './dispute-ai.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { User } from '../common/decorators/user.decorator';
@@ -7,7 +8,21 @@ import { DisputeStatus, UserRole } from '../domain/enums';
 
 @Controller('disputes')
 export class DisputesController {
-  constructor(private readonly disputesService: DisputesService) {}
+  constructor(
+    private readonly disputesService: DisputesService,
+    private readonly disputeAiService: DisputeAiService,
+  ) {}
+
+  @Post(':id/analyze')
+  async analyze(
+    @Param('id') id: string,
+    @User('role') role: UserRole,
+  ) {
+    if (role !== UserRole.ADMIN) {
+      throw new Error('Not authorized');
+    }
+    return this.disputeAiService.analyzeDispute(id);
+  }
 
   @Post()
   async create(

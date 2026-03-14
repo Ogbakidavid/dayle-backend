@@ -93,4 +93,32 @@ export class DiditService {
       return false;
     }
   }
+
+  async getSession(sessionId: string) {
+    const apiKey = this.configService.get<string>('DIDIT_API_KEY');
+    if (!apiKey) {
+      throw new HttpException('DIDIT_API_KEY_MISSING', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      const response = await fetch(`${this.apiUrl}${sessionId}`, {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.logger.error(`Failed to fetch Didit session ${sessionId}: ${JSON.stringify(data)}`);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      this.logger.error(`Error fetching Didit session ${sessionId}: ${error.message}`);
+      return null;
+    }
+  }
 }

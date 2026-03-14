@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockchainService } from '../common/services/blockchain.service';
 
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import {
@@ -22,7 +23,10 @@ import { ethers } from 'ethers';
 
 @Injectable()
 export class DisputesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private blockchainService: BlockchainService,
+  ) {}
 
   async create(userId: string, role: UserRole, dto: CreateDisputeDto) {
     const prisma = this.prisma;
@@ -200,6 +204,11 @@ export class DisputesService {
           where: { id: dispute.vaultId },
           data: { status: VaultStatus.RELEASED as any },
         });
+
+        // TRIGGER ON-CHAIN RELEASE
+        if (dispute.vault.vaultAddress) {
+          await this.blockchainService.releaseVault(dispute.vault.vaultAddress);
+        }
       } else if (outcome === DisputeResolutionOutcome.REFUND) {
         await tx.ledgerEntry.create({
           data: {
@@ -218,6 +227,11 @@ export class DisputesService {
           where: { id: dispute.vaultId },
           data: { status: VaultStatus.REFUNDED as any },
         });
+
+        // TRIGGER ON-CHAIN REFUND
+        if (dispute.vault.vaultAddress) {
+          await this.blockchainService.refundVault(dispute.vault.vaultAddress);
+        }
       } else if (outcome === DisputeResolutionOutcome.SPLIT) {
 
         const decimals = (dispute.vault as any).tokenDecimals || 18;

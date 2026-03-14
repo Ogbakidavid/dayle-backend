@@ -16,6 +16,7 @@ import { DiditService } from '../common/services/didit.service';
 import { RedisService } from '../common/redis/redis.service';
 import { InvitesService } from '../invites/invites.service';
 import { MailsService } from '../notifications/mails.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ethers } from 'ethers';
 
 @Injectable()
@@ -31,6 +32,7 @@ export class WebhooksService {
     private partna: PartnaService,
     private invitesService: InvitesService,
     private mailsService: MailsService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async handlePartnaWebhook(payload: any, signature: string) {
@@ -154,23 +156,42 @@ export class WebhooksService {
 
         if (depositSuccessful) {
           // Both DB updates should be inside a transaction for consistency
-          await this.prisma.$transaction([
-            this.prisma.ledgerEntry.update({
+          await this.prisma.$transaction(async (tx) => {
+            await tx.ledgerEntry.update({
               where: { id: ledgerEntry.id },
               data: {
                 status: TransactionStatus.CONFIRMED,
                 providerRef: blockchainTxHash || ledgerEntry.providerRef,
               },
-            }),
-            this.prisma.vault.update({
+            });
+
+            // Create negative FEE entry
+            const netAmount = vault.totalAmount; // This is the budget stored in vault
+            const grossAmount = BigInt(ledgerEntry.amount);
+            const feeAmount = grossAmount - netAmount;
+
+            await tx.ledgerEntry.create({
+              data: {
+                userId: vault.clientId,
+                vaultId: vault.id,
+                type: LedgerEntryType.FEE,
+                amount: -feeAmount, // Negative amount for deduction
+                currency: vault.tokenSymbol || 'USD',
+                status: TransactionStatus.CONFIRMED,
+                description: 'Service fee deducted',
+                completedAt: new Date(),
+              },
+            });
+
+            await tx.vault.update({
               where: { id: vault.id },
               data: {
                 status: VaultStatus.FUNDED,
                 isFrozen: false,
                 frozenReason: null,
               } as any,
-            }),
-          ]);
+            });
+          });
 
           // Invalidate cache so UI reflects change
           const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
@@ -267,23 +288,42 @@ export class WebhooksService {
         }
 
         if (depositSuccessful) {
-          await this.prisma.$transaction([
-            this.prisma.ledgerEntry.update({
+          await this.prisma.$transaction(async (tx) => {
+            await tx.ledgerEntry.update({
               where: { id: ledgerEntry.id },
               data: {
                 status: TransactionStatus.CONFIRMED,
                 providerRef: blockchainTxHash,
               },
-            }),
-            this.prisma.vault.update({
+            });
+
+            // Create negative FEE entry
+            const netAmount = vault.totalAmount;
+            const grossAmount = BigInt(ledgerEntry.amount);
+            const feeAmount = grossAmount - netAmount;
+
+            await tx.ledgerEntry.create({
+              data: {
+                userId: vault.clientId,
+                vaultId: vault.id,
+                type: LedgerEntryType.FEE,
+                amount: -feeAmount,
+                currency: vault.tokenSymbol || 'USD',
+                status: TransactionStatus.CONFIRMED,
+                description: 'Service fee deducted',
+                completedAt: new Date(),
+              },
+            });
+
+            await tx.vault.update({
               where: { id: vault.id },
               data: {
                 status: VaultStatus.FUNDED,
                 isFrozen: false,
                 frozenReason: null,
               } as any,
-            }),
-          ]);
+            });
+          });
 
           // Invalidate cache
           const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
@@ -339,6 +379,7 @@ export class WebhooksService {
     // Extract user ID (vendor_data) - V3 vs V2
     const userId = metadata?.vendor_data || vendor_data;
     const outcome = decision?.outcome;
+    const sessionId = payload.session_id;
     
     if (!userId) {
       this.logger.warn('Didit webhook received without vendor_data (userId)');
@@ -381,22 +422,67 @@ export class WebhooksService {
       return;
     }
 
+    // Extract PII (Personal Identifiable Information)
+    let fullName = 'Didit Verified User';
+    let dob: Date | null = null;
+    let idType = 'DIDIT_SESSION';
+
+    // Try to get data from current payload first
+    const idVerification = decision?.id_verifications?.[0];
+    const amlScreening = decision?.aml_screenings?.[0]?.screened_data;
+
+    if (idVerification?.full_name || amlScreening?.full_name) {
+      fullName = idVerification?.full_name || amlScreening?.full_name;
+      const dobString =
+        idVerification?.date_of_birth || amlScreening?.date_of_birth;
+      if (dobString) dob = new Date(dobString);
+      if (idVerification?.document_type)
+        idType = idVerification.document_type.toUpperCase().replace(' ', '_');
+    }
+
+    // CRITICAL: If we are approving, and data is missing in webhook, fetch from API
+    if (
+      kycStatus === KycStatus.VERIFIED &&
+      fullName === 'Didit Verified User' &&
+      sessionId
+    ) {
+      this.logger.log(
+        `Fetching full session data for ${sessionId} to get missing PII`,
+      );
+      const fullSession = await this.diditService.getSession(sessionId);
+      if (fullSession?.decision) {
+        const fullIv = fullSession.decision.id_verifications?.[0];
+        const fullAml = fullSession.decision.aml_screenings?.[0]?.screened_data;
+        if (fullIv?.full_name || fullAml?.full_name) {
+          fullName = fullIv?.full_name || fullAml?.full_name;
+          const dobString = fullIv?.date_of_birth || fullAml?.date_of_birth;
+          if (dobString) dob = new Date(dobString);
+          if (fullIv?.document_type)
+            idType = fullIv.document_type.toUpperCase().replace(' ', '_');
+          this.logger.log(`Successfully recovered PII from API: ${fullName}`);
+        }
+      }
+    }
+
     try {
       await this.prisma.user.update({
         where: { id: userId },
-        data: { 
+        data: {
           kycStatus,
           ...(kycStatus === KycStatus.VERIFIED && {
+            name: fullName, // Update user's name to match verified ID
             kycData: {
               upsert: {
                 create: {
-                  fullName: 'Didit Verified User',
-                  dateOfBirth: new Date(0),
+                  fullName: fullName,
+                  dateOfBirth: dob || new Date(0),
                   address: 'Verified via Didit Protocol',
                   idDocumentUrl: 'didit://verified',
-                  idType: 'DIDIT_SESSION',
+                  idType: idType,
                 },
                 update: {
+                  fullName: fullName,
+                  dateOfBirth: dob || new Date(0),
                   reviewedAt: new Date(),
                 },
               },
@@ -405,6 +491,18 @@ export class WebhooksService {
         },
       });
       this.logger.log(`Updated user ${userId} KYC status to ${kycStatus}`);
+
+      // Send in-app notification for VERIFIED or REJECTED
+      if (kycStatus === KycStatus.VERIFIED || kycStatus === KycStatus.REJECTED) {
+        await this.notificationsService.createNotification(userId, {
+          type: 'kyc',
+          title: kycStatus === KycStatus.VERIFIED ? 'Identity Verified' : 'Identity Verification Rejected',
+          message: kycStatus === KycStatus.VERIFIED 
+            ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
+            : 'Your identity verification was rejected. Please check your email for details or contact support.',
+          action: kycStatus === KycStatus.REJECTED ? '/onboarding/kyc' : undefined,
+        });
+      }
 
       if (isResubmitted) {
         await this.prisma.notification.create({

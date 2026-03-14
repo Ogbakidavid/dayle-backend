@@ -7,6 +7,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Delete,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
@@ -53,6 +54,11 @@ export class AdminController {
     return this.adminService.handleKyc(req.user, userId, 'REJECTED', reason);
   }
 
+  @Patch('kyc/:userId/reset')
+  async resetKyc(@Req() req: any, @Param('userId') userId: string) {
+    return this.adminService.resetKyc(req.user, userId);
+  }
+
   @Get('ledger')
   async getLedger(@Req() req: any) {
     return this.adminService.getLedger(req.user);
@@ -83,5 +89,10 @@ export class AdminController {
       id,
       dto,
     );
+  }
+
+  @Delete('sessions/:userId')
+  async revokeUserSessions(@Req() req: any, @Param('userId') userId: string) {
+    return this.adminService.revokeUserSessions(req.user.id, userId);
   }
 }

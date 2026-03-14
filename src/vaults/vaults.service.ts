@@ -97,11 +97,15 @@ export class VaultsService {
       dto.totalAmount.toString(),
       dto.tokenDecimals,
     );
+    // Budget is what the freelancer gets (net)
+    const budgetBigInt = budgetWei;
+    
+    // Total gross amount for deployment/funding (Budget / 0.97)
     const totalAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
     const finalAmountString = ethers.formatUnits(totalAmountBigInt, dto.tokenDecimals);
 
     this.logger.log(
-      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Budget: ${dto.totalAmount}, Gross-ed up Total: ${finalAmountString}`,
+      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Net Budget: ${dto.totalAmount}, Gross-ed up Total: ${finalAmountString}`,
     );
     const { vaultAddress } = await this.blockchainService.deployVault(
       clientAddress,
@@ -116,7 +120,7 @@ export class VaultsService {
         title: dto.title,
         description: dto.description,
         type: dto.type as any,
-        totalAmount: totalAmountBigInt,
+        totalAmount: budgetBigInt, // Store NET budget for freelancer
         tokenAddress: dto.tokenAddress,
         tokenSymbol: dto.tokenSymbol || null,
         tokenDecimals: dto.tokenDecimals,
@@ -319,17 +323,21 @@ export class VaultsService {
     // Logic for funding (ledger entry, collection voucher)
     const providerRef = `vault_fund_${id}_${Date.now()}`;
 
+    // Calculate gross amount for funding (3% fee inclusive)
+    const budgetWei = vault.totalAmount; // This is now net budget
+    const grossAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
+
     const { user, ledgerEntry } = await this.prisma.$transaction(async (tx) => {
-      // Create ledger entry in PENDING status
+      // Create ledger entry in PENDING status for the FULL GROSS AMOUNT
       const entry = await tx.ledgerEntry.create({
         data: {
           userId,
           vaultId: id,
           type: LedgerEntryType.DEPOSIT,
-          amount: vault.totalAmount,
+          amount: grossAmountBigInt,
           currency: vault.tokenSymbol || 'USD',
           status: TransactionStatus.PENDING,
-          description: `Funding for vault: ${vault.title}`,
+          description: `Funding for vault: ${vault.title} (Inc. 3% Fee)`,
           providerRef,
         },
       });
@@ -346,7 +354,7 @@ export class VaultsService {
     // Payment router integration (Onramp) - OUTSIDE transaction to avoid timeouts
     let onrampResult;
     try {
-      let fiatAmount = Number(ethers.formatUnits(vault.totalAmount, vault.tokenDecimals));
+      let fiatAmount = Number(ethers.formatUnits(grossAmountBigInt, vault.tokenDecimals));
       const targetCurrency = dto.currency || 'USD';
       
       if (targetCurrency === 'NGN') {

@@ -320,13 +320,17 @@ export class InvitesService {
       }
     }
 
-    // 4. Invalidate the freelancer's dashboard cache
+    // 4. Invalidate relevant caches
     try {
-      const cacheKey = `vaults:list:FREELANCER:${userId}`;
-      await this.redis.del(cacheKey);
-      this.logger.log(`Invalidated cache for freelancer ${userId}: ${cacheKey}`);
+      const keys = [
+        `vaults:detail:${invite.vaultId}`,
+        `vaults:list:CLIENT:${invite.vault.clientId}`,
+        `vaults:list:FREELANCER:${userId}`,
+      ];
+      await Promise.all(keys.map((key) => this.redis.del(key)));
+      this.logger.log(`Invalidated caches for vault ${invite.vaultId}, client ${invite.vault.clientId}, and freelancer ${userId}`);
     } catch (err) {
-      this.logger.error(`Failed to invalidate freelancer cache for ${userId}`, err);
+      this.logger.error(`Failed to invalidate caches for invite response`, err);
     }
 
     return result;

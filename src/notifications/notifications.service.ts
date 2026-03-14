@@ -249,4 +249,31 @@ export class NotificationsService {
 
     return notification;
   }
+
+  async createNotification(
+    userId: string,
+    data: {
+      type: string;
+      title: string;
+      message: string;
+      action?: string;
+    },
+  ) {
+    const notification = await this.prisma.notification.create({
+      data: {
+        userId,
+        type: data.type,
+        title: data.title,
+        message: data.message,
+        action: data.action,
+        read: false,
+        timestamp: new Date(),
+      },
+    });
+
+    // Broadcast real-time
+    this.gateway.sendToUser(userId, 'notification', notification);
+
+    return notification;
+  }
 }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
 import { ethers } from 'ethers';
 import {
   UserRole,
@@ -9,10 +10,15 @@ import {
   DisputeStatus,
 } from '../domain/enums';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private authService: AuthService,
+    private notificationsService: NotificationsService,
+  ) {}
 
   async getStats(user: any) {
     const prisma = this.prisma;
@@ -184,7 +190,17 @@ export class AdminService {
       const filePath = path.join(process.cwd(), 'webhook-logs.json');
       const data = await fs.readFile(filePath, 'utf8');
       const lines = data.split('\n').filter((line) => line.trim() !== '');
-      return lines.map((line) => JSON.parse(line)).reverse();
+      
+      const logs: any[] = [];
+      for (const line of lines) {
+        try {
+          logs.push(JSON.parse(line));
+        } catch (e) {
+          console.error(`Skipping malformed log line: ${line.substring(0, 100)}...`);
+        }
+      }
+      
+      return logs.reverse();
     } catch (error) {
       if (error.code === 'ENOENT') {
         return [];
@@ -243,7 +259,7 @@ export class AdminService {
     reason?: string,
   ) {
     const prisma = this.prisma;
-    return prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
         kycStatus: status,
@@ -253,6 +269,33 @@ export class AdminService {
             reviewedAt: new Date(),
           },
         },
+      },
+    });
+
+    // Send in-app notification
+    await this.notificationsService.createNotification(userId, {
+      type: 'kyc',
+      title: status === 'VERIFIED' ? 'Identity Verified' : 'Identity Verification Rejected',
+      message: status === 'VERIFIED' 
+        ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
+        : `Your identity verification was rejected. Reason: ${reason || 'Please contact support for more information.'}`,
+      action: status === 'REJECTED' ? '/onboarding/kyc' : undefined,
+    });
+
+    return updatedUser;
+  }
+
+  async resetKyc(admin: any, userId: string) {
+    // Delete any associated kycData records first
+    await this.prisma.kycData.deleteMany({
+      where: { userId },
+    });
+
+    // Then update the user's KYC status to NONE
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: 'NONE' as any,
       },
     });
   }
@@ -323,5 +366,10 @@ export class AdminService {
 
       return updatedDispute;
     });
+  }
+
+  async revokeUserSessions(adminId: string, targetUserId: string) {
+    // Optionally log this action here if needed
+    return this.authService.revokeAllSessions(targetUserId);
   }
 }
