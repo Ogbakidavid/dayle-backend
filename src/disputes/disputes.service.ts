@@ -40,6 +40,10 @@ export class DisputesService {
       throw new ForbiddenException('Not authorized');
     }
 
+    if (vault.status === VaultStatus.RELEASED) {
+      throw new BadRequestException('Cannot raise a dispute on a released vault');
+    }
+
     // Lookup deliverable ID by title from vault deliverables
     let deliverableId: string | null = null;
     let frozenTitle: string | null = null;
