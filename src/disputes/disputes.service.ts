@@ -140,7 +140,7 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { events: true, vault: true },
+      include: { events: true, vault: true, openedBy: true },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');

@@ -62,6 +62,12 @@ async function bootstrap() {
   // API prefix - exclude root route
   app.setGlobalPrefix('api', { exclude: ['/'] });
 
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
+  console.log('Available DisputeTypes:', Object.values(require('./domain/enums').DisputeType));
+  
   await app.listen(process.env.PORT || 4000);
   console.log(
     `🚀 welcome to dayle backend running on http://localhost:${process.env.PORT || 4000}`,

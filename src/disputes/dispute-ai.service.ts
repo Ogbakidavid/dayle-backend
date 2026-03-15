@@ -44,7 +44,7 @@ export class DisputeAiService {
       where: { vaultId: dispute.vaultId },
     });
 
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
 
     const prompt = `
       You are an impartial arbitrator for Dayle, a decentralized escrow platform.
