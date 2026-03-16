@@ -27,6 +27,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { ServicesModule } from './common/services/services.module';
 import { AuditModule } from './audit/audit.module';
 import { RlsInterceptor } from './common/interceptors/rls.interceptor';
+import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -79,6 +80,7 @@ import { RlsInterceptor } from './common/interceptors/rls.interceptor';
     WebhooksModule,
     AuditModule,
     AdminAuthModule,
+    PaymentMethodsModule,
   ],
   controllers: [AppController],
   providers: [

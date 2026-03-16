@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockchainService } from '../common/services/blockchain.service';
 import {
   ResolveDisputeDto,
   DisputeResolutionOutcome,
@@ -47,6 +48,13 @@ describe('DisputesService Adjudication', () => {
       providers: [
         DisputesService,
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: BlockchainService,
+          useValue: {
+            releaseVault: jest.fn(),
+            refundVault: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

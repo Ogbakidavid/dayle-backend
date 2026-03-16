@@ -90,3 +90,8 @@ export enum SubmissionType {
   LINK = 'LINK',
   BOTH = 'BOTH',
 }
+
+export enum PaymentMethodType {
+  CARD = 'CARD',
+  BANK_TRANSFER = 'BANK_TRANSFER',
+}

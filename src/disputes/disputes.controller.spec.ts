@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesController } from './disputes.controller';
 import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockchainService } from '../common/services/blockchain.service';
+import { DisputeAiService } from './dispute-ai.service';
 
 describe('DisputesController', () => {
   let controller: DisputesController;
@@ -14,6 +16,16 @@ describe('DisputesController', () => {
         {
           provide: PrismaService,
           useValue: {},
+        },
+        {
+          provide: BlockchainService,
+          useValue: {},
+        },
+        {
+          provide: DisputeAiService,
+          useValue: {
+            analyzeDispute: jest.fn(),
+          },
         },
       ],
     }).compile();

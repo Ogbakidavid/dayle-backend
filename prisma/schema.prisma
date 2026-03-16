@@ -26,6 +26,7 @@ model User {
   ledgerEntries           LedgerEntry[]
   notifications           Notification[]
   notificationPreferences NotificationPreferences?
+  paymentMethods          PaymentMethod[]
   refundRequests          RefundRequest[]
   sessions                Session[]
   clientVaults            Vault[]                  @relation("ClientVaults")
@@ -35,6 +36,33 @@ model User {
   @@index([email])
   @@index([role])
   @@index([kycStatus])
+}
+
+model PaymentMethod {
+  id            String            @id @default(uuid())
+  userId        String
+  type          PaymentMethodType
+  provider      String?           @default("PARTNA")
+  brand         String? // VISA, MASTERCARD, VERVE, etc.
+  last4         String?
+  expiryMonth   Int?
+  expiryYear    Int?
+  accountName   String?
+  accountNumber String? // Masked
+  bankName      String?
+  bankCode      String?
+  isDefault     Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+}
+
+enum PaymentMethodType {
+  CARD
+  BANK_TRANSFER
 }
 
 model Admin {
