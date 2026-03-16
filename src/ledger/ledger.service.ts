@@ -28,7 +28,16 @@ export class LedgerService {
       },
     });
 
-    const available = entries.reduce((sum, entry) => sum + entry.amount, BigInt(0));
+    const isClient = role.toUpperCase() === 'CLIENT';
+
+    const available = entries.reduce((sum, entry) => {
+      // For Clients, DEPOSIT (funding vault) and FEE should NOT be in available balance
+      // These represent committed capital, not liquid funds in the virtual ledger.
+      if (isClient && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) {
+        return sum;
+      }
+      return sum + entry.amount;
+    }, BigInt(0));
 
     const pendingEntries = await prisma.ledgerEntry.findMany({
       where: {
