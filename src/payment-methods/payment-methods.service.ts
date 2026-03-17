@@ -15,19 +15,34 @@ export class PaymentMethodsService {
     });
   }
 
-  async addCard(userId: string, data: {
-    brand: string;
-    last4: string;
-    expiryMonth: number;
-    expiryYear: number;
-    isDefault?: boolean;
-    provider?: string;
-  }) {
+  async addCard(
+    userId: string,
+    data: {
+      brand: string;
+      last4: string;
+      expiryMonth: number;
+      expiryYear: number;
+      firstName?: string;
+      lastName?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+      isDefault?: boolean;
+      provider?: string;
+    },
+  ) {
     // Basic server-side validation
     if (data.last4.length !== 4) {
       throw new Error('Invalid card data: last4 must be 4 digits');
     }
-    if (!['VISA', 'MASTERCARD', 'VERVE', 'CARD'].includes(data.brand.toUpperCase())) {
+    if (
+      !['VISA', 'MASTERCARD', 'VERVE', 'CARD'].includes(
+        data.brand.toUpperCase(),
+      )
+    ) {
       throw new Error('Unsupported card brand');
     }
 
@@ -47,20 +62,31 @@ export class PaymentMethodsService {
         last4: data.last4,
         expiryMonth: data.expiryMonth,
         expiryYear: data.expiryYear,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        addressLine1: data.addressLine1,
+        addressLine2: data.addressLine2,
+        city: data.city,
+        state: data.state,
+        postalCode: data.postalCode,
+        country: data.country,
         isDefault: !!data.isDefault,
         provider: data.provider || 'PARTNA',
       },
     });
   }
 
-  async addBank(userId: string, data: {
-    accountName: string;
-    accountNumber: string; // Masked
-    bankName: string;
-    bankCode: string;
-    isDefault?: boolean;
-    provider?: string;
-  }) {
+  async addBank(
+    userId: string,
+    data: {
+      accountName: string;
+      accountNumber: string; // Masked
+      bankName: string;
+      bankCode: string;
+      isDefault?: boolean;
+      provider?: string;
+    },
+  ) {
     if (data.isDefault) {
       await this.prisma.paymentMethod.updateMany({
         where: { userId, isDefault: true },

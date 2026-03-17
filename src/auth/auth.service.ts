@@ -29,7 +29,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid auth token');
     }
 
-    const claims = verifiedClaims as any;
+    const claims = verifiedClaims;
     const privyDid = claims.user_id || claims.userId || claims.sub;
     console.log(
       '[privyLogin] Step 1: Token verified. DID:',
@@ -48,9 +48,7 @@ export class AuthService {
     const privyUser = await this.privyService.getUser(privyDid);
     // REST API returns snake_case, old SDK returned camelCase — handle both
     const linkedAccounts: any[] =
-      (privyUser as any).linked_accounts ||
-      (privyUser as any).linkedAccounts ||
-      [];
+      privyUser.linked_accounts || privyUser.linkedAccounts || [];
     console.log(
       '[privyLogin] Step 2: Got Privy user. linked_accounts count:',
       linkedAccounts.length,
@@ -63,8 +61,8 @@ export class AuthService {
     let name = '';
 
     // 1. Top-level email field (REST API sometimes returns this directly)
-    if ((privyUser as any).email) {
-      const emailField = (privyUser as any).email;
+    if (privyUser.email) {
+      const emailField = privyUser.email;
       email =
         typeof emailField === 'string'
           ? emailField
@@ -154,9 +152,7 @@ export class AuthService {
         (account: any) =>
           account.type === 'wallet' && account.wallet_client_type === 'privy',
       );
-      const walletAddress = embeddedWallet
-        ? (embeddedWallet as any).address
-        : '';
+      const walletAddress = embeddedWallet ? embeddedWallet.address : '';
 
       if (!walletAddress) {
         console.warn(
@@ -207,10 +203,8 @@ export class AuthService {
           (account: any) =>
             account.type === 'wallet' && account.wallet_client_type === 'privy',
         );
-        
-        let walletAddress = embeddedWallet
-          ? (embeddedWallet as any).address
-          : null;
+
+        let walletAddress = embeddedWallet ? embeddedWallet.address : null;
 
         // If still no address but user is social/email, it's likely pending creation
         // Ensure 'pending' wallets are only created if no address is available
@@ -247,9 +241,11 @@ export class AuthService {
           account.type === 'wallet' && account.wallet_client_type === 'privy',
       );
 
-      if (embeddedWallet && (embeddedWallet as any).address) {
-        const realAddress = (embeddedWallet as any).address;
-        console.log(`[privyLogin] Found real address: ${realAddress}. Updating...`);
+      if (embeddedWallet && embeddedWallet.address) {
+        const realAddress = embeddedWallet.address;
+        console.log(
+          `[privyLogin] Found real address: ${realAddress}. Updating...`,
+        );
         await this.prisma.wallet.update({
           where: { id: user.wallet.id },
           data: { address: realAddress },
@@ -319,7 +315,7 @@ export class AuthService {
 
   private async blacklistToken(token: string) {
     try {
-      const decoded = this.jwtService.decode(token) as any;
+      const decoded = this.jwtService.decode(token);
       if (decoded && decoded.exp) {
         const ttl = Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
         if (ttl > 0) {

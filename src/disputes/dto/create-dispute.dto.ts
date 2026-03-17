@@ -28,4 +28,12 @@ export class CreateDisputeDto {
   @IsString()
   @MaxLength(1000)
   description: string;
+
+  @IsOptional()
+  evidence?: Array<{
+    filename: string;
+    key: string;
+    size: number;
+    type: string;
+  }>;
 }

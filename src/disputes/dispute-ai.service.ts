@@ -25,7 +25,9 @@ export class DisputeAiService {
       if (apiKey) {
         this.genAI = new GoogleGenerativeAI(apiKey);
       } else {
-        throw new Error('GOOGLE_AI_API_KEY is not configured. Please add it to your .env file.');
+        throw new Error(
+          'GOOGLE_AI_API_KEY is not configured. Please add it to your .env file.',
+        );
       }
     }
 
@@ -34,8 +36,8 @@ export class DisputeAiService {
       include: {
         vault: {
           include: {
-            deliverables: true
-          }
+            deliverables: true,
+          },
         },
         events: true,
       },
@@ -49,31 +51,40 @@ export class DisputeAiService {
       where: { vaultId: dispute.vaultId },
     });
 
+    const submissions = await this.prisma.submission.findMany({
+      where: { vaultId: dispute.vaultId },
+      include: { deliverables: true },
+      orderBy: { submittedAt: 'desc' },
+    });
+
     const decimals = (dispute.vault as any).tokenDecimals || 18;
-    const humanTotalAmount = ethers.formatUnits(dispute.vault.totalAmount, decimals);
+    const humanTotalAmount = ethers.formatUnits(
+      dispute.vault.totalAmount,
+      decimals,
+    );
 
     // Use a stable production model
-    const model = this.genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro',
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: SchemaType.OBJECT,
           properties: {
             rationale: { type: SchemaType.STRING },
-            recommendedOutcome: { 
-              type: SchemaType.STRING, 
+            recommendedOutcome: {
+              type: SchemaType.STRING,
               enum: ['RELEASE', 'REFUND', 'SPLIT'],
-              nullable: false, 
+              nullable: false,
             } as any,
-            recommendedSplitAmount: { 
+            recommendedSplitAmount: {
               type: SchemaType.NUMBER,
-              description: `The amount to release to the freelancer if outcome is SPLIT. Return this as a human-readable decimal (e.g., 450.50) NOT base units. Max allowed: ${humanTotalAmount}`
-            }
+              description: `The amount to release to the freelancer if outcome is SPLIT. Return this as a human-readable decimal (e.g., 450.50) NOT base units. Max allowed: ${humanTotalAmount}`,
+            },
           },
-          required: ['rationale', 'recommendedOutcome']
-        }
-      }
+          required: ['rationale', 'recommendedOutcome'],
+        },
+      },
     });
 
     const prompt = `
@@ -90,10 +101,32 @@ export class DisputeAiService {
       - Total Vault Amount: ${humanTotalAmount} (Human-readable units)
       
       CONTRACTUAL DELIVERABLES:
-      ${(dispute.vault as any).deliverables?.map((d: any) => `- TITLE: ${d.title} | DESCRIPTION: ${d.description || 'N/A'}`).join('\n') || 'No specific deliverables listed'}
+      ${(dispute.vault as any).deliverables?.map((d: any) => `- TITLE: ${d.title} | DESCRIPTION: ${d.description || 'N/A'} | REQ_TYPE: ${d.submissionType}`).join('\n') || 'No specific deliverables listed'}
+ 
+      FREELANCER SUBMISSIONS (Actual work delivered):
+      ${
+        submissions
+          .map(
+            (s: any) => `- [${s.submittedAt}]
+  GLOBAL NOTES: ${s.notes || 'N/A'}
+  DELIVERABLE CONTENT: ${JSON.stringify(
+    s.deliverableStatus
+      ?.filter((d: any) => d.included)
+      .map((d: any) => ({
+        title: d.deliverableTitle,
+        notes: d.notes,
+        link: d.link,
+        files: d.files?.map((f: any) => f.filename),
+      })) || 'N/A',
+  )}
+  LEGACY FILES: ${JSON.stringify(s.filesJson)}
+  LEGACY URL: ${s.url || 'N/A'}`,
+          )
+          .join('\n') || 'No submissions found'
+      }
 
-      EVIDENCE LOG (Submissions from both parties):
-      ${evidence.map((e: any) => `- [${e.createdAt}] TYPE: ${e.type} | CONTENT: ${typeof e.payload === 'string' ? e.payload : JSON.stringify(e.payload)}`).join('\n') || 'No evidence uploaded yet'}
+      EVIDENCE LOG (Additional context supporting claims):
+      ${evidence.map((e: any) => `- [${e.createdAt}] TYPE: ${e.type} | CONTENT: ${typeof e.payload === 'string' ? e.payload : JSON.stringify(e.payload)}`).join('\n') || 'No additional evidence uploaded'}
 
       PROTOCOL EVENTS (System-logged actions):
       ${dispute.events.map((ev: any) => `- [${ev.createdAt}] EVENT: ${ev.eventType} | DATA: ${JSON.stringify(ev.payload)}`).join('\n')}
@@ -110,16 +143,19 @@ export class DisputeAiService {
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
-      
+
       const analysis = JSON.parse(text);
 
       // Backend safety check: ensure split amount doesn't exceed total
-      if (analysis.recommendedOutcome === 'SPLIT' && analysis.recommendedSplitAmount > Number(humanTotalAmount)) {
+      if (
+        analysis.recommendedOutcome === 'SPLIT' &&
+        analysis.recommendedSplitAmount > Number(humanTotalAmount)
+      ) {
         analysis.recommendedSplitAmount = Number(humanTotalAmount);
       }
 
       return analysis;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`AI Analysis failed: ${error.message}`);
       throw new Error(`Failed to analyze dispute with AI: ${error.message}`);
     }

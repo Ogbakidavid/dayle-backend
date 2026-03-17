@@ -4,11 +4,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { ethers } from 'ethers';
-import {
-  UserRole,
-  VaultStatus,
-  DisputeStatus,
-} from '../domain/enums';
+import { UserRole, VaultStatus, DisputeStatus } from '../domain/enums';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -78,9 +74,9 @@ export class AdminService {
       activeVaults,
       totalVolume: ethers.formatUnits(totalVolume._sum?.amount || BigInt(0), 6),
       pendingDisputes,
-      volumeTrends: volumeTrends.map(t => ({
+      volumeTrends: volumeTrends.map((t) => ({
         month: t.month,
-        volume: ethers.formatUnits(t.volume, 6)
+        volume: ethers.formatUnits(t.volume, 6),
       })),
     };
   }
@@ -136,7 +132,10 @@ export class AdminService {
     vaults.forEach((v) =>
       logs.push({
         id: `vault-${v.id}`,
-        event: v.status === VaultStatus.FUNDED ? 'VAULT_LOCK_CONFIRMED' : 'VAULT_CREATED',
+        event:
+          v.status === VaultStatus.FUNDED
+            ? 'VAULT_LOCK_CONFIRMED'
+            : 'VAULT_CREATED',
         desc: `Vault "${v.title}" (${ethers.formatUnits(v.totalAmount, 6)}) - ${v.status}`,
         time: v.createdAt,
         type: v.status === VaultStatus.FUNDED ? 'SUCCESS' : 'INFO',
@@ -176,30 +175,38 @@ export class AdminService {
       );
 
     return logs
-      .filter(log => log.time instanceof Date || !isNaN(Date.parse(log.time)))
+      .filter((log) => log.time instanceof Date || !isNaN(Date.parse(log.time)))
       .sort((a, b) => {
-        const timeA = a.time instanceof Date ? a.time.getTime() : new Date(a.time).getTime();
-        const timeB = b.time instanceof Date ? b.time.getTime() : new Date(b.time).getTime();
+        const timeA =
+          a.time instanceof Date
+            ? a.time.getTime()
+            : new Date(a.time).getTime();
+        const timeB =
+          b.time instanceof Date
+            ? b.time.getTime()
+            : new Date(b.time).getTime();
         return timeB - timeA;
       })
       .slice(0, limit);
   }
-  
+
   async getDiditWebhookLogs(user: any) {
     try {
       const filePath = path.join(process.cwd(), 'webhook-logs.json');
       const data = await fs.readFile(filePath, 'utf8');
       const lines = data.split('\n').filter((line) => line.trim() !== '');
-      
+
       const logs: any[] = [];
       for (const line of lines) {
         try {
           logs.push(JSON.parse(line));
         } catch (e) {
-          console.error(`Skipping malformed log line: ${line.substring(0, 100)}...`);
+          console.error(
+            `Skipping malformed log line: ${line.substring(0, 100)}...`,
+          );
         }
       }
-      
+
       return logs.reverse();
     } catch (error) {
       if (error.code === 'ENOENT') {
@@ -275,10 +282,14 @@ export class AdminService {
     // Send in-app notification
     await this.notificationsService.createNotification(userId, {
       type: 'kyc',
-      title: status === 'VERIFIED' ? 'Identity Verified' : 'Identity Verification Rejected',
-      message: status === 'VERIFIED' 
-        ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
-        : `Your identity verification was rejected. Reason: ${reason || 'Please contact support for more information.'}`,
+      title:
+        status === 'VERIFIED'
+          ? 'Identity Verified'
+          : 'Identity Verification Rejected',
+      message:
+        status === 'VERIFIED'
+          ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
+          : `Your identity verification was rejected. Reason: ${reason || 'Please contact support for more information.'}`,
       action: status === 'REJECTED' ? '/onboarding/kyc' : undefined,
     });
 

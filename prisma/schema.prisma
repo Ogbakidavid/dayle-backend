@@ -47,6 +47,14 @@ model PaymentMethod {
   last4         String?
   expiryMonth   Int?
   expiryYear    Int?
+  firstName     String?
+  lastName      String?
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  state         String?
+  postalCode    String?
+  country       String?
   accountName   String?
   accountNumber String? // Masked
   bankName      String?

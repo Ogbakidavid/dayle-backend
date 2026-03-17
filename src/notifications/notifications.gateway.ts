@@ -20,7 +20,9 @@ import { OnModuleInit } from '@nestjs/common';
   namespace: 'notifications',
 })
 @Injectable()
-export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
+export class NotificationsGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+{
   @WebSocketServer()
   server: Server;
 
@@ -80,13 +82,15 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   async handleConnection(client: Socket) {
     try {
       // Get token from handshake auth or query or cookie
-      const token = 
-        client.handshake.auth?.token || 
+      const token =
+        client.handshake.auth?.token ||
         client.handshake.headers?.authorization?.split(' ')[1] ||
         this.extractFromCookie(client.handshake.headers?.cookie);
 
       if (!token) {
-        this.logger.warn(`Client ${client.id} connected without token, disconnecting...`);
+        this.logger.warn(
+          `Client ${client.id} connected without token, disconnecting...`,
+        );
         client.disconnect();
         return;
       }
@@ -97,16 +101,22 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
       const userId = payload.sub || payload.id;
       if (!userId) {
-        this.logger.warn(`Client ${client.id} token has no userId, disconnecting...`);
+        this.logger.warn(
+          `Client ${client.id} token has no userId, disconnecting...`,
+        );
         client.disconnect();
         return;
       }
 
       // Join a room specific to the user
       client.join(`user_${userId}`);
-      this.logger.log(`Client ${client.id} (User: ${userId}) connected and joined room user_${userId}`);
+      this.logger.log(
+        `Client ${client.id} (User: ${userId}) connected and joined room user_${userId}`,
+      );
     } catch (err) {
-      this.logger.error(`Connection error for client ${client.id}: ${err.message}`);
+      this.logger.error(
+        `Connection error for client ${client.id}: ${err.message}`,
+      );
       client.disconnect();
     }
   }

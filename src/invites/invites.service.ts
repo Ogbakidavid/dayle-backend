@@ -151,7 +151,9 @@ export class InvitesService {
       },
       orderBy: { invitedAt: 'desc' },
     });
-    this.logger.log(`Found ${invitations.length} pending invitations for ${email}`);
+    this.logger.log(
+      `Found ${invitations.length} pending invitations for ${email}`,
+    );
     return invitations.map((invite) => ({
       ...invite,
       vault: {
@@ -230,7 +232,6 @@ export class InvitesService {
       },
     );
 
-
     // --- Post-Transaction Side-Effects (Blockchain & Cache) ---
     if (dto.action === 'accept' && result.vault) {
       const vault = result.vault;
@@ -239,7 +240,7 @@ export class InvitesService {
       if (vault.vaultAddress) {
         // Vault already exists (Proactive model). Hand over to the real freelancer.
         const freelancerWallet = vault.freelancer?.wallet?.address;
-        const isValidEthAddress = (addr: string) => 
+        const isValidEthAddress = (addr: string) =>
           addr && addr.startsWith('0x') && addr.length === 42;
 
         if (isValidEthAddress(freelancerWallet)) {
@@ -263,10 +264,13 @@ export class InvitesService {
         const clientWallet = vault.client?.wallet?.address;
         const freelancerWallet = vault.freelancer?.wallet?.address;
 
-        const isValidEthAddress = (addr: string) => 
+        const isValidEthAddress = (addr: string) =>
           addr && addr.startsWith('0x') && addr.length === 42;
 
-        if (isValidEthAddress(clientWallet) && isValidEthAddress(freelancerWallet)) {
+        if (
+          isValidEthAddress(clientWallet) &&
+          isValidEthAddress(freelancerWallet)
+        ) {
           try {
             const wasFundedLocally = vault.status === VaultStatus.FUNDED;
             this.logger.log(
@@ -328,7 +332,9 @@ export class InvitesService {
         `vaults:list:FREELANCER:${userId}`,
       ];
       await Promise.all(keys.map((key) => this.redis.del(key)));
-      this.logger.log(`Invalidated caches for vault ${invite.vaultId}, client ${invite.vault.clientId}, and freelancer ${userId}`);
+      this.logger.log(
+        `Invalidated caches for vault ${invite.vaultId}, client ${invite.vault.clientId}, and freelancer ${userId}`,
+      );
     } catch (err) {
       this.logger.error(`Failed to invalidate caches for invite response`, err);
     }

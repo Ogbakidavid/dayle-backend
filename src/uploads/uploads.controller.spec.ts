@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UploadsController } from './uploads.controller';
 import { UploadsService } from './uploads.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('UploadsController', () => {
   let controller: UploadsController;
@@ -11,6 +12,12 @@ describe('UploadsController', () => {
       controllers: [UploadsController],
       providers: [
         UploadsService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue('test'),
+          },
+        },
         {
           provide: PrismaService,
           useValue: {},

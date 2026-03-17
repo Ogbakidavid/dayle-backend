@@ -57,20 +57,23 @@ export class PaycrestService {
     };
   }) {
     const isOnramp = params.type === 'onramp';
-    
-    const recipient = isOnramp ? {
-      institution: 'WALLET',
-      accountIdentifier: params.walletAddress,
-      accountName: params.customerEmail,
-      currency: params.currency,
-      memo: params.reference,
-    } : {
-      institution: 'BANK', 
-      accountIdentifier: params.bankDetails?.account_number || 'MOCK_ACCOUNT',
-      accountName: params.bankDetails?.account_name || params.customerEmail,
-      currency: params.currency,
-      memo: params.reference,
-    };
+
+    const recipient = isOnramp
+      ? {
+          institution: 'WALLET',
+          accountIdentifier: params.walletAddress,
+          accountName: params.customerEmail,
+          currency: params.currency,
+          memo: params.reference,
+        }
+      : {
+          institution: 'BANK',
+          accountIdentifier:
+            params.bankDetails?.account_number || 'MOCK_ACCOUNT',
+          accountName: params.bankDetails?.account_name || params.customerEmail,
+          currency: params.currency,
+          memo: params.reference,
+        };
 
     const res = await this.request('/sender/orders', {
       method: 'POST',

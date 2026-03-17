@@ -48,7 +48,12 @@ describe('DisputesService', () => {
     });
 
     await expect(
-      service.create(userId, role, { vaultId, disputeType: 'FRAUD', reasonCode: 'TEST', description: 'test' } as any),
+      service.create(userId, role, {
+        vaultId,
+        disputeType: 'FRAUD',
+        reasonCode: 'TEST',
+        description: 'test',
+      } as any),
     ).rejects.toThrow(BadRequestException);
   });
 });

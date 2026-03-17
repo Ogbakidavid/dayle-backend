@@ -89,7 +89,9 @@ export class PartnaService {
     });
 
     const isStaging = this.baseUrl.includes('staging');
-    const payBaseUrl = isStaging ? 'https://staging.ventogram.com' : 'https://ventogram.com';
+    const payBaseUrl = isStaging
+      ? 'https://staging.ventogram.com'
+      : 'https://ventogram.com';
     const callback = this.configService.get<string>('PARTNA_WEBHOOK_URL');
 
     return {

@@ -62,7 +62,8 @@ export class WebhooksService {
       }
     }
 
-    const { reference, status, amount, type, voucherCode } = payload.data || payload;
+    const { reference, status, amount, type, voucherCode } =
+      payload.data || payload;
 
     // Map Partna status to our internal TransactionStatus
     let internalStatus = TransactionStatus.PENDING;
@@ -117,7 +118,7 @@ export class WebhooksService {
                 );
                 await this.partna.redeemAndWithdraw({
                   voucherCode,
-                  walletAddress: vault.vaultAddress!,
+                  walletAddress: vault.vaultAddress,
                   network: 'celo',
                   token: vault.tokenSymbol || 'cUSD',
                 });
@@ -194,14 +195,21 @@ export class WebhooksService {
           });
 
           // Invalidate cache so UI reflects change
-          const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
+          const keys = [
+            `vaults:detail:${vault.id}`,
+            `vaults:list:${UserRole.CLIENT}:${vault.clientId}`,
+          ];
           if (vault.freelancerId) {
-            keys.push(`vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`);
+            keys.push(
+              `vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`,
+            );
           }
-          await Promise.all(keys.map(key => this.redisService.del(key)));
+          await Promise.all(keys.map((key) => this.redisService.del(key)));
 
-          this.logger.log(`Vault ${vault.id} successfully funded and ledger confirmed.`);
-          
+          this.logger.log(
+            `Vault ${vault.id} successfully funded and ledger confirmed.`,
+          );
+
           // Publish real-time event
           await this.redisService.publish('vault.funded', {
             vaultId: vault.id,
@@ -261,7 +269,9 @@ export class WebhooksService {
         (vault.status === VaultStatus.DRAFT ||
           vault.status === VaultStatus.FUNDED)
       ) {
-        this.logger.log(`Triggering Fiat -> Crypto delivery for Paycrest Vault ${vault.id}`);
+        this.logger.log(
+          `Triggering Fiat -> Crypto delivery for Paycrest Vault ${vault.id}`,
+        );
 
         let depositSuccessful = false;
         let blockchainTxHash = data?.txHash || orderId;
@@ -283,7 +293,9 @@ export class WebhooksService {
             );
           }
         } else if (!vault.vaultAddress) {
-          this.logger.log(`Vault ${vault.id} has no address yet (Guest Freelancer). Marking as Funded but without on-chain tx.`);
+          this.logger.log(
+            `Vault ${vault.id} has no address yet (Guest Freelancer). Marking as Funded but without on-chain tx.`,
+          );
           depositSuccessful = true;
         }
 
@@ -326,11 +338,16 @@ export class WebhooksService {
           });
 
           // Invalidate cache
-          const keys = [`vaults:detail:${vault.id}`, `vaults:list:${UserRole.CLIENT}:${vault.clientId}`];
+          const keys = [
+            `vaults:detail:${vault.id}`,
+            `vaults:list:${UserRole.CLIENT}:${vault.clientId}`,
+          ];
           if (vault.freelancerId) {
-            keys.push(`vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`);
+            keys.push(
+              `vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`,
+            );
           }
-          await Promise.all(keys.map(key => this.redisService.del(key)));
+          await Promise.all(keys.map((key) => this.redisService.del(key)));
 
           this.logger.log(`Paycrest Vault ${vault.id} successfully funded.`);
 
@@ -375,12 +392,12 @@ export class WebhooksService {
 
     // Didit V3 sends decision and metadata objects. V2 sends event/vendor_data at top level.
     const { event, vendor_data, status, decision, metadata } = payload;
-    
+
     // Extract user ID (vendor_data) - V3 vs V2
     const userId = metadata?.vendor_data || vendor_data;
     const outcome = decision?.outcome;
     const sessionId = payload.session_id;
-    
+
     if (!userId) {
       this.logger.warn('Didit webhook received without vendor_data (userId)');
       return;
@@ -389,24 +406,24 @@ export class WebhooksService {
     let kycStatus = KycStatus.PENDING;
 
     // Determine normalized status
-    const isApproved = 
-      event === 'session.approved' || 
-      outcome === 'approved' || 
-      status === 'Approved' || 
+    const isApproved =
+      event === 'session.approved' ||
+      outcome === 'approved' ||
+      status === 'Approved' ||
       status === 'approved' ||
       (payload.webhook_type === 'status.updated' && status === 'Approved');
 
-    const isRejected = 
-      event === 'session.declined' || 
-      event === 'session.failed' || 
-      outcome === 'declined' || 
+    const isRejected =
+      event === 'session.declined' ||
+      event === 'session.failed' ||
+      outcome === 'declined' ||
       outcome === 'failed' ||
       status === 'Declined' ||
       status === 'Failed' ||
       status === 'declined' ||
       status === 'failed';
 
-    const isResubmitted = 
+    const isResubmitted =
       event === 'session.resubmitted' ||
       outcome === 'resubmitted' ||
       status === 'Resubmitted' ||
@@ -418,7 +435,9 @@ export class WebhooksService {
     } else if (isRejected || isResubmitted) {
       kycStatus = KycStatus.REJECTED;
     } else {
-      this.logger.log(`Ignoring or internal Didit event: ${event || payload.webhook_type || 'v3_event'}`);
+      this.logger.log(
+        `Ignoring or internal Didit event: ${event || payload.webhook_type || 'v3_event'}`,
+      );
       return;
     }
 
@@ -493,14 +512,22 @@ export class WebhooksService {
       this.logger.log(`Updated user ${userId} KYC status to ${kycStatus}`);
 
       // Send in-app notification for VERIFIED or REJECTED
-      if (kycStatus === KycStatus.VERIFIED || kycStatus === KycStatus.REJECTED) {
+      if (
+        kycStatus === KycStatus.VERIFIED ||
+        kycStatus === KycStatus.REJECTED
+      ) {
         await this.notificationsService.createNotification(userId, {
           type: 'kyc',
-          title: kycStatus === KycStatus.VERIFIED ? 'Identity Verified' : 'Identity Verification Rejected',
-          message: kycStatus === KycStatus.VERIFIED 
-            ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
-            : 'Your identity verification was rejected. Please check your email for details or contact support.',
-          action: kycStatus === KycStatus.REJECTED ? '/onboarding/kyc' : undefined,
+          title:
+            kycStatus === KycStatus.VERIFIED
+              ? 'Identity Verified'
+              : 'Identity Verification Rejected',
+          message:
+            kycStatus === KycStatus.VERIFIED
+              ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
+              : 'Your identity verification was rejected. Please check your email for details or contact support.',
+          action:
+            kycStatus === KycStatus.REJECTED ? '/onboarding/kyc' : undefined,
         });
       }
 
@@ -510,7 +537,8 @@ export class WebhooksService {
             userId: userId,
             type: 'kyc',
             title: 'KYC Resubmission Needed',
-            message: 'Your identity verification requires you to resubmit or retake photos. Please try again.',
+            message:
+              'Your identity verification requires you to resubmit or retake photos. Please try again.',
             action: '/onboarding/kyc',
             read: false,
             timestamp: new Date(),
@@ -525,21 +553,28 @@ export class WebhooksService {
   private async handlePostFundingActions(vaultId: string) {
     const vault = await this.prisma.vault.findUnique({
       where: { id: vaultId },
-      include: { client: true }
+      include: { client: true },
     });
 
     if (!vault) return;
 
     // Check if there's a pending invite for this vault
     const invite = await this.prisma.invite.findFirst({
-      where: { vaultId: vault.id, status: InviteStatus.PENDING }
+      where: { vaultId: vault.id, status: InviteStatus.PENDING },
     });
 
     if (invite) {
       try {
-        this.logger.log(`Vault funded. Sending invitation email to guest freelancer ${invite.email}...`);
-        const amount = Number(ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6));
-        
+        this.logger.log(
+          `Vault funded. Sending invitation email to guest freelancer ${invite.email}...`,
+        );
+        const amount = Number(
+          ethers.formatUnits(
+            vault.totalAmount || BigInt(0),
+            vault.tokenDecimals || 6,
+          ),
+        );
+
         await this.mailsService.sendInviteEmail(
           invite.email,
           vault.client?.name || 'A client',
@@ -548,7 +583,10 @@ export class WebhooksService {
           invite.token,
         );
       } catch (error) {
-         this.logger.error(`Failed to send post-funding invite to ${invite.email}`, error);
+        this.logger.error(
+          `Failed to send post-funding invite to ${invite.email}`,
+          error,
+        );
       }
     }
   }

@@ -28,7 +28,9 @@ export class VaultsController {
 
   @Get()
   async list(@User('id') userId: string, @User('role') role: UserRole) {
-    console.log(`[VaultsController] list request received. User=${userId}, Role=${role}`);
+    console.log(
+      `[VaultsController] list request received. User=${userId}, Role=${role}`,
+    );
     return this.vaultsService.list(userId, role);
   }
 

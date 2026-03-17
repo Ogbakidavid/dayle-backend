@@ -10,4 +10,11 @@ export class UploadsController {
   async getPresignedUrl(@Body() dto: GetPresignedUrlDto) {
     return this.uploadsService.getPresignedUrl(dto);
   }
+
+  @Post('download-url')
+  async getDownloadUrl(@Body('key') key: string) {
+    return {
+      url: await this.uploadsService.getDownloadUrl(key),
+    };
+  }
 }

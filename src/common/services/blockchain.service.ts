@@ -115,7 +115,9 @@ export class BlockchainService implements OnModuleInit {
       this.factoryContract.on(
         'VaultCreated',
         async (vaultAddress, client, freelancer, token, amount, event) => {
-          this.logger.log(`Blockchain: New vault created at ${vaultAddress} with token ${token}`);
+          this.logger.log(
+            `Blockchain: New vault created at ${vaultAddress} with token ${token}`,
+          );
           this.listenToVault(vaultAddress);
         },
       );
@@ -150,10 +152,15 @@ export class BlockchainService implements OnModuleInit {
           } catch (e) {
             attempts++;
             if (attempts >= maxAttempts) {
-              this.logger.error('Error initializing block polling state after retries', e);
+              this.logger.error(
+                'Error initializing block polling state after retries',
+                e,
+              );
             } else {
-              this.logger.warn(`Prisma init attempt ${attempts} failed, retrying in 5s...`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
+              this.logger.warn(
+                `Prisma init attempt ${attempts} failed, retrying in 5s...`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, 5000));
             }
           }
         }
@@ -213,7 +220,7 @@ export class BlockchainService implements OnModuleInit {
                 for (const evt of depositedEvents) {
                   const event = evt as ethers.EventLog;
                   const amount = event.args[1] as bigint;
-                  
+
                   // Handle handles deposit
                   void (async () => {
                     const vault = await (this.prisma.vault.findUnique as any)({
@@ -222,7 +229,7 @@ export class BlockchainService implements OnModuleInit {
                     if (!vault) return;
 
                     this.logger.log(
-                        `Blockchain (polled): Deposited ${ethers.formatUnits(amount, vault.tokenDecimals)} ${vault.tokenSymbol || 'token'} into ${vaultAddress}`,
+                      `Blockchain (polled): Deposited ${ethers.formatUnits(amount, vault.tokenDecimals)} ${vault.tokenSymbol || 'token'} into ${vaultAddress}`,
                     );
 
                     const pendingEntry =
@@ -466,7 +473,11 @@ export class BlockchainService implements OnModuleInit {
       const erc20Interface = new ethers.Interface([
         'function decimals() view returns (uint8)',
       ]);
-      const tokenContract = new ethers.Contract(tokenAddress, erc20Interface, this.provider);
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        erc20Interface,
+        this.provider,
+      );
       const decimals = await tokenContract.decimals();
       const amountWei = ethers.parseUnits(amountUSD, decimals);
 
@@ -499,7 +510,7 @@ export class BlockchainService implements OnModuleInit {
         throw new Error('VaultCreated event not found in transaction receipt');
       }
 
-      const parsedEvent = this.factoryContract.interface.parseLog(event as any);
+      const parsedEvent = this.factoryContract.interface.parseLog(event);
       const vaultAddress = parsedEvent!.args[0];
 
       this.logger.log(`Vault deployed on-chain at: ${vaultAddress}`);
@@ -519,9 +530,7 @@ export class BlockchainService implements OnModuleInit {
     tokenAddress: string,
   ): Promise<string> {
     if (!this.treasuryWallet) {
-      throw new Error(
-        'Treasury/Arbiter Wallet not configured.',
-      );
+      throw new Error('Treasury/Arbiter Wallet not configured.');
     }
 
     try {
@@ -541,14 +550,21 @@ export class BlockchainService implements OnModuleInit {
         this.treasuryWallet,
       );
 
-      const balance = await tokenContract.balanceOf(this.treasuryWallet.address);
+      const balance = await tokenContract.balanceOf(
+        this.treasuryWallet.address,
+      );
       this.logger.log(`Arbiter balance for token ${tokenAddress}: ${balance}`);
 
       if (balance < amountWei) {
         // 2. Try to mint if balance is insufficient
-        this.logger.log(`Insufficient balance. Attempting to mint ${amountWei} tokens to Arbiter for funding...`);
+        this.logger.log(
+          `Insufficient balance. Attempting to mint ${amountWei} tokens to Arbiter for funding...`,
+        );
         try {
-          const mintTx = await tokenContract.mint(this.treasuryWallet.address, amountWei);
+          const mintTx = await tokenContract.mint(
+            this.treasuryWallet.address,
+            amountWei,
+          );
           await mintTx.wait();
           this.logger.log(`Successfully minted tokens.`);
         } catch (mintError: any) {
@@ -562,7 +578,9 @@ export class BlockchainService implements OnModuleInit {
       }
 
       // 3. Approve the Vault to spend Treasury tokens
-      this.logger.log(`Approving Vault ${vaultAddress} to spend Arbiter tokens...`);
+      this.logger.log(
+        `Approving Vault ${vaultAddress} to spend Arbiter tokens...`,
+      );
       const approveTx = await tokenContract.approve(vaultAddress, amountWei);
       await approveTx.wait();
 
@@ -642,7 +660,10 @@ export class BlockchainService implements OnModuleInit {
       );
       return receipt.hash;
     } catch (error) {
-      this.logger.error(`Error refunding vault ${vaultAddress} on-chain:`, error);
+      this.logger.error(
+        `Error refunding vault ${vaultAddress} on-chain:`,
+        error,
+      );
       throw error;
     }
   }

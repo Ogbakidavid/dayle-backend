@@ -25,6 +25,7 @@ export class AdminAuthService {
   async login(admin: any) {
     const payload = {
       sub: admin.id,
+      id: admin.id,
       email: admin.email,
       role: 'ADMIN',
       permissions: admin.permissions,

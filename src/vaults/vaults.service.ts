@@ -48,7 +48,9 @@ export class VaultsService {
     const prisma = this.prisma;
 
     if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      const cachedResponse = await this.redis.get(
+        `idempotency:${dto.idempotencyKey}`,
+      );
       if (cachedResponse) {
         return JSON.parse(cachedResponse);
       }
@@ -99,10 +101,13 @@ export class VaultsService {
     );
     // Budget is what the freelancer gets (net)
     const budgetBigInt = budgetWei;
-    
+
     // Total gross amount for deployment/funding (Budget / 0.97)
     const totalAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
-    const finalAmountString = ethers.formatUnits(totalAmountBigInt, dto.tokenDecimals);
+    const finalAmountString = ethers.formatUnits(
+      totalAmountBigInt,
+      dto.tokenDecimals,
+    );
 
     this.logger.log(
       `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Net Budget: ${dto.totalAmount}, Gross-ed up Total: ${finalAmountString}`,
@@ -210,7 +215,7 @@ export class VaultsService {
       role === UserRole.CLIENT
         ? { clientId: userId }
         : { freelancerId: userId };
-    
+
     this.logger.log(`Query where clause: ${JSON.stringify(where)}`);
 
     const vaults = await prisma.vault.findMany({
@@ -245,18 +250,18 @@ export class VaultsService {
     if (cached) {
       vaultResult = JSON.parse(cached);
     } else {
-    const vault = await prisma.vault.findUnique({
-      where: { id },
-      include: {
-        submissions: {
-          orderBy: { submittedAt: 'desc' },
+      const vault = await prisma.vault.findUnique({
+        where: { id },
+        include: {
+          submissions: {
+            orderBy: { submittedAt: 'desc' },
+          },
+          deliverables: true,
+          ledgerEntries: true,
+          client: { select: { id: true, name: true, email: true } },
+          freelancer: { select: { id: true, name: true, email: true } },
         },
-        deliverables: true,
-        ledgerEntries: true,
-        client: { select: { id: true, name: true, email: true } },
-        freelancer: { select: { id: true, name: true, email: true } },
-      },
-    });
+      });
 
       if (!vault) {
         throw new NotFoundException({
@@ -313,7 +318,10 @@ export class VaultsService {
       });
     }
 
-    if (vault.status !== VaultStatus.DRAFT && vault.status !== VaultStatus.FUNDED) {
+    if (
+      vault.status !== VaultStatus.DRAFT &&
+      vault.status !== VaultStatus.FUNDED
+    ) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
         message: 'Vault not in fundable status (must be DRAFT or FUNDED)',
@@ -343,20 +351,22 @@ export class VaultsService {
       });
 
       // Get user with wallet within transaction
-      const u = await tx.user.findUnique({ 
+      const u = await tx.user.findUnique({
         where: { id: userId },
-        include: { wallet: true }
+        include: { wallet: true },
       });
-      
+
       return { user: u, ledgerEntry: entry };
     });
 
     // Payment router integration (Onramp) - OUTSIDE transaction to avoid timeouts
     let onrampResult;
     try {
-      let fiatAmount = Number(ethers.formatUnits(grossAmountBigInt, vault.tokenDecimals));
+      let fiatAmount = Number(
+        ethers.formatUnits(grossAmountBigInt, vault.tokenDecimals),
+      );
       const targetCurrency = dto.currency || 'USD';
-      
+
       if (targetCurrency === 'NGN') {
         fiatAmount = fiatAmount * 1500; // Mock exchange rate for MVP
       }
@@ -373,23 +383,29 @@ export class VaultsService {
       this.logger.warn(
         `Onramp failed, falling back to mock provider for development: ${err.message}`,
       );
-      
-      const fiatAmount = Number(ethers.formatUnits(vault.totalAmount, vault.tokenDecimals));
+
+      const fiatAmount = Number(
+        ethers.formatUnits(vault.totalAmount, vault.tokenDecimals),
+      );
       const targetCurrency = dto.currency || 'USD';
-      const finalAmount = targetCurrency === 'NGN' ? fiatAmount * 1500 : fiatAmount;
+      const finalAmount =
+        targetCurrency === 'NGN' ? fiatAmount * 1500 : fiatAmount;
 
       onrampResult = {
         provider: 'mock',
         paymentUrl: `/checkout/${id}/${dto.paymentMethod === 'bank' ? 'bank' : 'card'}?ref=${providerRef}`,
         providerRef,
-        bankDetails: dto.paymentMethod === 'bank' ? {
-          accountNumber: '0123456789',
-          bankName: 'Dayle Mock Bank',
-          accountName: 'Dayle Escrow (STAGING)',
-          amount: finalAmount,
-          currency: targetCurrency,
-          reference: providerRef,
-        } : null,
+        bankDetails:
+          dto.paymentMethod === 'bank'
+            ? {
+                accountNumber: '0123456789',
+                bankName: 'Dayle Mock Bank',
+                accountName: 'Dayle Escrow (STAGING)',
+                amount: finalAmount,
+                currency: targetCurrency,
+                reference: providerRef,
+              }
+            : null,
       };
     }
 
@@ -408,7 +424,7 @@ export class VaultsService {
       vault,
       ledgerEntry,
       paymentUrl: onrampResult.paymentUrl,
-      bankDetails: (onrampResult as any).bankDetails, // Return virtual account info if provided
+      bankDetails: onrampResult.bankDetails, // Return virtual account info if provided
       provider: onrampResult.provider,
       providerRef: ledgerEntry.providerRef,
     };
@@ -422,7 +438,9 @@ export class VaultsService {
   ) {
     const prisma = this.prisma;
     if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      const cachedResponse = await this.redis.get(
+        `idempotency:${dto.idempotencyKey}`,
+      );
       if (cachedResponse) {
         return JSON.parse(cachedResponse);
       }
@@ -455,7 +473,10 @@ export class VaultsService {
           filesJson: (dto.files || []) as any,
           deliverableStatus: (dto.deliverableStatus || []) as any,
           deliverables: {
-            connect: (dto.deliverableStatus?.filter(d => d.included).map(d => ({ id: d.deliverableId })) || []),
+            connect:
+              dto.deliverableStatus
+                ?.filter((d) => d.included)
+                .map((d) => ({ id: d.deliverableId })) || [],
           },
           submittedBy: userId,
         },
@@ -465,7 +486,7 @@ export class VaultsService {
     });
 
     await this.invalidateVaultCache(vaultId, vault.clientId, userId);
-    
+
     if (dto.idempotencyKey) {
       await this.redis.set(
         `idempotency:${dto.idempotencyKey}`,
@@ -485,7 +506,9 @@ export class VaultsService {
   ) {
     const prisma = this.prisma;
     if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      const cachedResponse = await this.redis.get(
+        `idempotency:${dto.idempotencyKey}`,
+      );
       if (cachedResponse) {
         return JSON.parse(cachedResponse);
       }
@@ -528,14 +551,17 @@ export class VaultsService {
       try {
         await this.blockchainService.releaseVault(vault.vaultAddress);
       } catch (error) {
-        this.logger.error(`On-chain release failed for vault ${vaultId}`, error);
-        // We don't throw here to keep DB in sync, but maybe we should? 
+        this.logger.error(
+          `On-chain release failed for vault ${vaultId}`,
+          error,
+        );
+        // We don't throw here to keep DB in sync, but maybe we should?
         // For now, let's just log. The listener will eventually sync it if it succeeds later.
       }
     }
 
     await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
-    
+
     if (dto.idempotencyKey) {
       await this.redis.set(
         `idempotency:${dto.idempotencyKey}`,
@@ -556,7 +582,9 @@ export class VaultsService {
     const prisma = this.prisma;
     // Check idempotency
     if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(`idempotency:${dto.idempotencyKey}`);
+      const cachedResponse = await this.redis.get(
+        `idempotency:${dto.idempotencyKey}`,
+      );
       if (cachedResponse) {
         return JSON.parse(cachedResponse);
       }
@@ -651,7 +679,8 @@ export class VaultsService {
             le.type === LedgerEntryType.RELEASE &&
             le.status === TransactionStatus.CONFIRMED,
         )
-        .reduce((sum: bigint, le: any) => sum + BigInt(le.amount), BigInt(0)) || BigInt(0);
+        .reduce((sum: bigint, le: any) => sum + BigInt(le.amount), BigInt(0)) ||
+      BigInt(0);
 
     return {
       id: vault.id,
@@ -667,8 +696,14 @@ export class VaultsService {
       totalAmount: vault.totalAmount.toString(),
       amount: vault.amount.toString(),
       paidAmount: paidAmount.toString(),
-      formattedTotalAmount: ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6),
-      formattedPaidAmount: ethers.formatUnits(paidAmount || BigInt(0), vault.tokenDecimals || 6),
+      formattedTotalAmount: ethers.formatUnits(
+        vault.totalAmount || BigInt(0),
+        vault.tokenDecimals || 6,
+      ),
+      formattedPaidAmount: ethers.formatUnits(
+        paidAmount || BigInt(0),
+        vault.tokenDecimals || 6,
+      ),
       isFrozen: vault.isFrozen,
       frozenReason: vault.frozenReason,
       clientId: vault.clientId,
@@ -761,8 +796,7 @@ export class VaultsService {
       data: {
         // We no longer update freelancerId here immediately.
         // It remains null (or its previous value) until the new freelancer accepts.
-        // freelancerId: newFreelancerId, 
-
+        // freelancerId: newFreelancerId,
       },
     });
 
@@ -805,11 +839,18 @@ export class VaultsService {
           dto.freelancerEmail,
           vault.client?.name || 'A client',
           vault.title,
-          Number(ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6)),
+          Number(
+            ethers.formatUnits(
+              vault.totalAmount || BigInt(0),
+              vault.tokenDecimals || 6,
+            ),
+          ),
           invite.token,
         );
       } else {
-        this.logger.log(`Vault is in DRAFT. Post-funding webhook will send the invite to ${dto.freelancerEmail}`);
+        this.logger.log(
+          `Vault is in DRAFT. Post-funding webhook will send the invite to ${dto.freelancerEmail}`,
+        );
       }
     }
 

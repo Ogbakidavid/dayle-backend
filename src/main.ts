@@ -46,9 +46,10 @@ async function bootstrap() {
         process.env.ADMIN_URL,
       ].filter(Boolean);
 
-      const isAllowed = allowedOrigins.includes(origin) || 
-                        origin.endsWith('.ngrok-free.dev') || 
-                        origin.endsWith('.netlify.app');
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.ngrok-free.dev') ||
+        origin.endsWith('.netlify.app');
 
       if (isAllowed) {
         callback(null, true);
@@ -66,8 +67,11 @@ async function bootstrap() {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   });
 
-  console.log('Available DisputeTypes:', Object.values(require('./domain/enums').DisputeType));
-  
+  console.log(
+    'Available DisputeTypes:',
+    Object.values(require('./domain/enums').DisputeType),
+  );
+
   await app.listen(process.env.PORT || 4000);
   console.log(
     `🚀 welcome to dayle backend running on http://localhost:${process.env.PORT || 4000}`,

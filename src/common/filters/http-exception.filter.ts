@@ -31,7 +31,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message = resp.message || exception.message;
         details = resp.details;
       } else {
-        message = exceptionResponse as string;
+        message = exceptionResponse;
       }
     } else if (exception && (exception as any).status) {
       // Fallback for cases where instanceof fails but it looks like an HttpException

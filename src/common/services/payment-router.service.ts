@@ -79,24 +79,28 @@ export class PaymentRouter {
           customerName: params.customerFullName || 'Dayle User',
           merchantReference: params.reference,
         });
-        
+
         // Return bank details so the UI can display them directly
         return {
           provider,
-          bankDetails: res.data ? {
-            accountNumber: res.data.accountNumber,
-            bankName: res.data.bankName,
-            accountName: res.data.accountName,
-            amount: res.data.amount,
-            currency: res.data.currency,
-            reference: res.data.reference,
-          } : null,
+          bankDetails: res.data
+            ? {
+                accountNumber: res.data.accountNumber,
+                bankName: res.data.bankName,
+                accountName: res.data.accountName,
+                amount: res.data.amount,
+                currency: res.data.currency,
+                reference: res.data.reference,
+              }
+            : null,
           paymentUrl: res.data?.paymentUrl || null,
           providerRef: res.data?.reference || params.reference,
         };
       } catch (err) {
         // Fallback to voucher link if /collect fails
-        this.logger.warn(`Partna /collect failed: ${err.message}. Falling back to /vouchers.`);
+        this.logger.warn(
+          `Partna /collect failed: ${err.message}. Falling back to /vouchers.`,
+        );
         const res = await this.partna.createCollectionVoucher(
           params.amount,
           params.currency,

@@ -15,7 +15,6 @@ import {
 import { Type } from 'class-transformer';
 import { VaultType, SubmissionType } from '../../domain/enums';
 
-
 export class CreateVaultDto {
   @IsString()
   @MinLength(3)
@@ -82,4 +81,3 @@ export class DeliverableDto {
   @IsOptional()
   submissionType?: SubmissionType;
 }
-

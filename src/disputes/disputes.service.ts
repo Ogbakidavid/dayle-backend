@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
@@ -41,7 +42,9 @@ export class DisputesService {
     }
 
     if (vault.status === VaultStatus.RELEASED) {
-      throw new BadRequestException('Cannot raise a dispute on a released vault');
+      throw new BadRequestException(
+        'Cannot raise a dispute on a released vault',
+      );
     }
 
     // Lookup deliverable ID by title from vault deliverables
@@ -100,6 +103,28 @@ export class DisputesService {
         },
       });
 
+      // 4. Create Evidence records if any
+      if (dto.evidence && dto.evidence.length > 0) {
+        for (const item of dto.evidence) {
+          await tx.evidence.create({
+            data: {
+              vaultId: dto.vaultId,
+              disputeId: newDispute.id,
+              type: 'MESSAGE' as any, // Default type for initial evidence
+              payload: {
+                fileName: item.filename,
+                key: item.key,
+                size: item.size,
+                type: item.type,
+                purpose: 'DISPUTE_EVIDENCE',
+              } as any,
+              createdBy: userId,
+              immutableAfterSubmission: true,
+            },
+          });
+        }
+      }
+
       return newDispute;
     });
 
@@ -140,12 +165,18 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { 
-        events: true, 
+      include: {
+        events: true,
         vault: {
-          include: { deliverables: true }
-        }, 
-        openedBy: true 
+          include: {
+            deliverables: true,
+            submissions: {
+              include: { deliverables: true },
+              orderBy: { submittedAt: 'desc' },
+            },
+          },
+        },
+        openedBy: true,
       },
     });
 
@@ -164,6 +195,44 @@ export class DisputesService {
     return dispute;
   }
 
+  async investigate(id: string, adminId: string) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+
+    if (dispute.status !== DisputeStatus.OPEN) {
+      return dispute; // Already investigating or resolved
+    }
+
+    const updatedDispute = await prisma.$transaction(async (tx) => {
+      // 1. Update Dispute Status
+      const updated = await tx.dispute.update({
+        where: { id },
+        data: { status: DisputeStatus.UNDER_REVIEW as any },
+      });
+
+      // 2. Log Event
+      await tx.disputeEvent.create({
+        data: {
+          disputeId: id,
+          actorId: adminId,
+          actorRole: UserRole.ADMIN,
+          eventType: 'UNDER_REVIEW',
+          payload: {
+            notes: 'Investigation started by admin',
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    return updatedDispute;
+  }
+
   async resolve(
     id: string,
     adminId: string,
@@ -178,9 +247,29 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
 
-    // Only Admins can resolve
-    const admin = await prisma.user.findUnique({ where: { id: adminId } });
-    if (!admin || admin.role !== UserRole.ADMIN) {
+    if (!adminId) {
+      throw new UnauthorizedException('Admin ID is missing from request');
+    }
+
+    // Only Admins can resolve (Checking both User table for social admins and Admin table for dashboard admins)
+    let isAuthorized = false;
+    const userAdmin = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { role: true },
+    });
+
+    if (userAdmin && userAdmin.role === UserRole.ADMIN) {
+      isAuthorized = true;
+    } else {
+      const explicitAdmin = await prisma.admin.findUnique({
+        where: { id: adminId },
+      });
+      if (explicitAdmin) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
       throw new ForbiddenException('Only admins can resolve disputes');
     }
 
@@ -243,12 +332,11 @@ export class DisputesService {
           await this.blockchainService.refundVault(dispute.vault.vaultAddress);
         }
       } else if (outcome === DisputeResolutionOutcome.SPLIT) {
-
         const decimals = (dispute.vault as any).tokenDecimals || 18;
 
         const splitAmountBigInt = ethers.parseUnits(
-          splitAmount!.toString(), 
-          decimals
+          splitAmount!.toString(),
+          decimals,
         );
 
         const vaultAmount = BigInt(amount);

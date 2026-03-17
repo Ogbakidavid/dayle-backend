@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, ForbiddenException } from '@nestjs/common';
 import { DisputesService } from './disputes.service';
 import { DisputeAiService } from './dispute-ai.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
@@ -14,10 +14,7 @@ export class DisputesController {
   ) {}
 
   @Post(':id/analyze')
-  async analyze(
-    @Param('id') id: string,
-    @User('role') role: UserRole,
-  ) {
+  async analyze(@Param('id') id: string, @User('role') role: UserRole) {
     if (role !== UserRole.ADMIN) {
       throw new Error('Not authorized');
     }
@@ -88,5 +85,17 @@ export class DisputesController {
     @Body() dto: ResolveDisputeDto,
   ) {
     return this.disputesService.resolve(id, adminId, role, dto);
+  }
+
+  @Post(':id/investigate')
+  async investigate(
+    @Param('id') id: string,
+    @User('id') adminId: string,
+    @User('role') role: UserRole,
+  ) {
+    if (role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Not authorized');
+    }
+    return this.disputesService.investigate(id, adminId);
   }
 }

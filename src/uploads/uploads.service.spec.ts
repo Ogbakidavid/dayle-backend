@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UploadsService } from './uploads.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('UploadsService', () => {
   let service: UploadsService;
@@ -9,6 +10,12 @@ describe('UploadsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UploadsService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue('test'),
+          },
+        },
         {
           provide: PrismaService,
           useValue: {},

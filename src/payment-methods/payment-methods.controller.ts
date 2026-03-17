@@ -1,14 +1,14 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Delete, 
-  Param, 
-  Body, 
-  UseGuards, 
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
   Req,
   HttpException,
-  HttpStatus
+  HttpStatus,
 } from '@nestjs/common';
 import { PaymentMethodsService } from './payment-methods.service';
 import { AuthGuard } from '../common/guards/auth.guard';
@@ -19,7 +19,7 @@ import { PartnaService } from '../common/services/partna.service';
 export class PaymentMethodsController {
   constructor(
     private readonly paymentMethodsService: PaymentMethodsService,
-    private readonly partna: PartnaService
+    private readonly partna: PartnaService,
   ) {}
 
   @Get()
@@ -56,7 +56,10 @@ export class PaymentMethodsController {
   @Post('resolve-bank')
   async resolveBank(@Body() body: { bankCode: string; accountNumber: string }) {
     try {
-      return await this.partna.resolveBankAccount(body.bankCode, body.accountNumber);
+      return await this.partna.resolveBankAccount(
+        body.bankCode,
+        body.accountNumber,
+      );
     } catch (error) {
       throw new HttpException(
         error.message || 'Failed to resolve bank account',

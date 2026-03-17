@@ -46,7 +46,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async publish(channel: string, message: any): Promise<number> {
     if (this.redisClient.status !== 'ready') return 0;
     try {
-      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+      const payload =
+        typeof message === 'string' ? message : JSON.stringify(message);
       return await this.redisClient.publish(channel, payload);
     } catch (err) {
       this.logger.warn(`Redis PUBLISH failed for channel: ${channel}`);

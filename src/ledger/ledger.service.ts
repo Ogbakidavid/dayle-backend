@@ -33,7 +33,11 @@ export class LedgerService {
     const available = entries.reduce((sum, entry) => {
       // For Clients, DEPOSIT (funding vault) and FEE should NOT be in available balance
       // These represent committed capital, not liquid funds in the virtual ledger.
-      if (isClient && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) {
+      if (
+        isClient &&
+        (entry.type === LedgerEntryType.DEPOSIT ||
+          entry.type === LedgerEntryType.FEE)
+      ) {
         return sum;
       }
       return sum + entry.amount;
@@ -110,7 +114,7 @@ export class LedgerService {
     // 3. Check Balance
     const balance = await this.getBalance(userId, role);
     const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), 18); // Defaulting to 18 decimals for now
-    
+
     if (BigInt(balance.available) < withdrawAmountBigInt) {
       throw new BadRequestException({
         code: 'INSUFFICIENT_FUNDS',
@@ -122,6 +126,20 @@ export class LedgerService {
     const result = await prisma.$transaction(async (tx) => {
       const providerRef = `withdraw_${userId}_${Date.now()}`;
 
+      // Fee calculation
+      const PROVIDER_FEE_PERCENT = 0.01; // 1.0% (Partna)
+      const APP_FEE_PERCENT = 0.005; // 0.5% (Dayle)
+      
+      const providerFee = dto.amount * PROVIDER_FEE_PERCENT;
+      const appFee = dto.amount * APP_FEE_PERCENT;
+      const totalFees = providerFee + appFee;
+      const netAmount = dto.amount - totalFees;
+
+      // BigInt conversions for ledger (using 18 decimals parity)
+      const appFeeBigInt = ethers.parseUnits(appFee.toFixed(18), 18);
+      const netAmountBigInt = ethers.parseUnits(netAmount.toFixed(18), 18);
+
+      // 4a. Create gross withdrawal entry
       const entry = await tx.ledgerEntry.create({
         data: {
           userId,
@@ -134,10 +152,23 @@ export class LedgerService {
         },
       });
 
-      // Trigger Payment Router (Offramp)
+      // 4b. Create platform fee entry
+      await tx.ledgerEntry.create({
+        data: {
+          userId,
+          type: LedgerEntryType.FEE,
+          amount: -appFeeBigInt, // Deduction for the app fee
+          currency: dto.currency || 'USD',
+          status: TransactionStatus.CONFIRMED, // Fees are confirmed immediately on initiation
+          description: `Service fee for withdrawal ${entry.id}`,
+          completedAt: new Date(),
+        },
+      });
+
+      // Trigger Payment Router (Offramp) with NET amount
       const user = await tx.user.findUnique({ where: { id: userId } });
       const offrampResult = await this.paymentRouter.initiateOfframp({
-        amount: dto.amount,
+        amount: netAmount, // Send ONLY the net amount
         currency: dto.currency || 'USD',
         reference: providerRef,
         bankDetails: {
@@ -154,6 +185,8 @@ export class LedgerService {
         createdAt: entry.createdAt,
         type: 'WITHDRAW',
         amount: entry.amount,
+        netAmount: netAmount.toString(),
+        totalFees: totalFees.toString(),
         currency: dto.currency || 'USD',
         status: entry.status,
         providerRef,
