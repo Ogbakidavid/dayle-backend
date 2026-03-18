@@ -85,7 +85,7 @@ export class MailsService {
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #333;">
             <h2>You've been invited!</h2>
-            <p><strong>${clientName}</strong> has created a new escrow vault for you on Dayle.</p>
+            <p><strong>${clientName}</strong> has created a new secure project vault for you on Dayle.</p>
             <p><strong>Project:</strong> ${vaultTitle}</p>
             <p><strong>Amount:</strong> $${amount} USD</p>
             <hr />

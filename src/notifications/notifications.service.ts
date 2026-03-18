@@ -25,7 +25,6 @@ export class NotificationsService {
         where: {
           userId,
           type: 'kyc',
-          read: false, // Only re-create if they dismissed it? Or just check if any exists. Let's avoid spam.
         },
       });
 
@@ -37,12 +36,22 @@ export class NotificationsService {
             title: 'Identity Verification Required',
             message:
               'Please complete your KYC verification to unlock full features.',
-            action: '/onboarding', // Assuming this is the KYC flow
+            action: '/onboarding',
             read: false,
             timestamp: new Date(),
           },
         });
       }
+    } else {
+      // Cleanup: If user has done KYC, remove or mark as read the old reminders to avoid confusion
+      await this.prisma.notification.updateMany({
+        where: {
+          userId,
+          type: 'kyc',
+          read: false,
+        },
+        data: { read: true },
+      });
     }
 
     return this.prisma.notification.findMany({

@@ -1,4 +1,26 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, ValidateNested, IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class DeliverableStatusDto {
+  @IsString()
+  @IsNotEmpty()
+  deliverableId: string;
+
+  @IsBoolean()
+  included: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  notes: string;
+
+  @IsArray()
+  @IsOptional()
+  files?: Array<{ name: string; size: number }>;
+
+  @IsString()
+  @IsOptional()
+  link?: string;
+}
 
 export class SubmitVaultDto {
   @IsArray()
@@ -6,18 +28,14 @@ export class SubmitVaultDto {
   files?: Array<{ name: string; size: number }>;
 
   @IsString()
-  @IsOptional()
-  comments?: string;
+  @IsNotEmpty()
+  comments: string;
 
   @IsArray()
   @IsOptional()
-  deliverableStatus?: Array<{
-    deliverableId: string;
-    included: boolean;
-    notes?: string;
-    files?: Array<{ name: string; size: number }>;
-    link?: string;
-  }>;
+  @ValidateNested({ each: true })
+  @Type(() => DeliverableStatusDto)
+  deliverableStatus?: DeliverableStatusDto[];
 
   @IsString()
   @IsNotEmpty()

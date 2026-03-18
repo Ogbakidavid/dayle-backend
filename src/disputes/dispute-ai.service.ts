@@ -88,7 +88,7 @@ export class DisputeAiService {
     });
 
     const prompt = `
-      You are an impartial arbitrator for Dayle, a decentralized escrow platform. 
+      You are an impartial arbitrator for Dayle, a decentralized settlement layer. 
       Your goal is to analyze the evidence and events in a dispute and provide a fair resolution.
 
       DISPUTE CONTEXT:

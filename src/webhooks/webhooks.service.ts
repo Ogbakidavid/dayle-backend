@@ -103,7 +103,7 @@ export class WebhooksService {
           vault.status === VaultStatus.FUNDED)
       ) {
         this.logger.log(
-          `Triggering Fiat -> Crypto delivery for Vault ${vault.id}`,
+          `Triggering Settlement for Vault ${vault.id}`,
         );
 
         let depositSuccessful = false;
@@ -219,6 +219,24 @@ export class WebhooksService {
           });
 
           await this.handlePostFundingActions(vault.id);
+
+          // Notify client about confirmed deposit
+          await this.notificationsService.createNotification(vault.clientId, {
+            type: 'payment',
+            title: 'Deposit Confirmed',
+            message: `Your deposit for vault "${vault.title}" has been confirmed and the vault is now funded.`,
+            action: `/client/vaults/${vault.id}`,
+          });
+
+          // If there's a freelancer, notify them too
+          if (vault.freelancerId) {
+            await this.notificationsService.createNotification(vault.freelancerId, {
+              type: 'vault',
+              title: 'Vault Funded',
+              message: `The client has funded the vault "${vault.title}". You can now begin work.`,
+              action: `/freelancer/vault/${vault.id}`,
+            });
+          }
         }
       }
     } else {
@@ -227,6 +245,16 @@ export class WebhooksService {
         where: { id: ledgerEntry.id },
         data: { status: internalStatus },
       });
+
+      // If it's a successful payout (withdrawal), notify the user
+      if (isSuccess && type === 'payout') {
+        await this.notificationsService.createNotification(ledgerEntry.userId, {
+          type: 'payment',
+          title: 'Withdrawal Completed',
+          message: `Your withdrawal has been successfully processed and funds have been sent to your bank account.`,
+          action: '/settings',
+        });
+      }
     }
   }
 
@@ -270,7 +298,7 @@ export class WebhooksService {
           vault.status === VaultStatus.FUNDED)
       ) {
         this.logger.log(
-          `Triggering Fiat -> Crypto delivery for Paycrest Vault ${vault.id}`,
+          `Triggering Settlement for Paycrest Vault ${vault.id}`,
         );
 
         let depositSuccessful = false;
@@ -516,19 +544,30 @@ export class WebhooksService {
         kycStatus === KycStatus.VERIFIED ||
         kycStatus === KycStatus.REJECTED
       ) {
-        await this.notificationsService.createNotification(userId, {
-          type: 'kyc',
-          title:
-            kycStatus === KycStatus.VERIFIED
-              ? 'Identity Verified'
-              : 'Identity Verification Rejected',
-          message:
-            kycStatus === KycStatus.VERIFIED
-              ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
-              : 'Your identity verification was rejected. Please check your email for details or contact support.',
-          action:
-            kycStatus === KycStatus.REJECTED ? '/onboarding/kyc' : undefined,
+        // Deduplicate: Don't create if an unread notification of the same type already exists
+        const existingNotif = await this.prisma.notification.findFirst({
+          where: {
+            userId,
+            type: 'kyc',
+            title: kycStatus === KycStatus.VERIFIED ? 'Identity Verified' : 'Identity Verification Rejected',
+          },
         });
+
+        if (!existingNotif) {
+          await this.notificationsService.createNotification(userId, {
+            type: 'kyc',
+            title:
+              kycStatus === KycStatus.VERIFIED
+                ? 'Identity Verified'
+                : 'Identity Verification Rejected',
+            message:
+              kycStatus === KycStatus.VERIFIED
+                ? 'Congratulations! Your identity has been successfully verified. You now have full access to all features.'
+                : 'Your identity verification was rejected. Please check your email for details or contact support.',
+            action:
+              kycStatus === KycStatus.REJECTED ? '/onboarding/kyc' : undefined,
+          });
+        }
       }
 
       if (isResubmitted) {

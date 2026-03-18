@@ -385,11 +385,8 @@ export class BlockchainService implements OnModuleInit {
   }
 
   /**
-   * Transfer testnet cUSD from the Treasury Wallet to a specific address.
-   * Used to bridge Fiat webhooks to Crypto escrows entirely on the backend.
-   */
-  /**
-   * Used to bridge Fiat webhooks to Crypto escrows entirely on the backend.
+   * Transfer testnet tokens from the Treasury Wallet to a specific address.
+   * Used to bridge Fiat webhooks to secure project vaults entirely on the backend.
    */
   public async transferTestnetToken(
     toAddress: string,

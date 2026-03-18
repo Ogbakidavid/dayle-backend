@@ -30,6 +30,7 @@ import { ethers } from 'ethers';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { InvitesService } from '../invites/invites.service';
 import { MailsService } from '../notifications/mails.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class VaultsService {
@@ -41,6 +42,7 @@ export class VaultsService {
     private blockchainService: BlockchainService,
     private invitesService: InvitesService,
     private mailsService: MailsService,
+    private notificationsService: NotificationsService,
     private configService: ConfigService,
   ) {}
 
@@ -400,7 +402,7 @@ export class VaultsService {
             ? {
                 accountNumber: '0123456789',
                 bankName: 'Dayle Mock Bank',
-                accountName: 'Dayle Escrow (STAGING)',
+                accountName: 'Dayle Settlement (STAGING)',
                 amount: finalAmount,
                 currency: targetCurrency,
                 reference: providerRef,
@@ -419,6 +421,14 @@ export class VaultsService {
     }
 
     await this.invalidateVaultCache(id, userId, vault.freelancerId);
+
+    // Notify client about the funding process
+    await this.notificationsService.createNotification(userId, {
+      type: 'payment',
+      title: 'Deposit Initiated',
+      message: `Your deposit for vault "${vault.title}" has been initiated and is awaiting confirmation.`,
+      action: `/client/vaults/${id}`,
+    });
 
     return {
       vault,
@@ -486,6 +496,14 @@ export class VaultsService {
     });
 
     await this.invalidateVaultCache(vaultId, vault.clientId, userId);
+
+    // Notify client about the submission
+    await this.notificationsService.createNotification(vault.clientId, {
+      type: 'vault',
+      title: 'Work Submitted',
+      message: `The freelancer has submitted work for vault "${vault.title}".`,
+      action: `/client/vault/${vaultId}`,
+    });
 
     if (dto.idempotencyKey) {
       await this.redis.set(
@@ -561,6 +579,16 @@ export class VaultsService {
     }
 
     await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
+
+    // Notify freelancer about the release
+    if (vault.freelancerId) {
+      await this.notificationsService.createNotification(vault.freelancerId, {
+        type: 'payment',
+        title: 'Funds Released',
+        message: `The client has released the funds for vault "${vault.title}".`,
+        action: `/freelancer/vault/${vaultId}`,
+      });
+    }
 
     if (dto.idempotencyKey) {
       await this.redis.set(
@@ -640,6 +668,15 @@ export class VaultsService {
     }
 
     await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
+
+    // Notify client about the refund
+    await this.notificationsService.createNotification(userId, {
+      type: 'payment',
+      title: 'Funds Refunded',
+      message: `The funds for vault "${vault.title}" have been successfully refunded to your account.`,
+      action: `/client/vaults/${vaultId}`,
+    });
+
     return result;
   }
 

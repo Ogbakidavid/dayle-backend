@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerEntryType, TransactionStatus, KycStatus } from '../domain/enums';
 import { WithdrawDto } from './dto/withdraw.dto';
 import { PaymentRouter } from '../common/services/payment-router.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
 import { ethers } from 'ethers';
 
@@ -16,6 +17,7 @@ export class LedgerService {
   constructor(
     private prisma: PrismaService,
     private paymentRouter: PaymentRouter,
+    private notificationsService: NotificationsService,
     private configService: ConfigService,
   ) {}
 
@@ -202,6 +204,14 @@ export class LedgerService {
           statusCode: 201,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
+      });
+
+      // Notify user about withdrawal initiation
+      await this.notificationsService.createNotification(userId, {
+        type: 'payment',
+        title: 'Withdrawal Initiated',
+        message: `Your withdrawal of ${dto.amount} ${dto.currency || 'USD'} has been initiated.`,
+        action: '/settings',
       });
 
       return responseBody;
