@@ -98,4 +98,39 @@ export class DisputesController {
     }
     return this.disputesService.investigate(id, adminId);
   }
+
+  @Post(':id/propose-settlement')
+  async proposeSettlement(
+    @Param('id') id: string,
+    @User('id') userId: string,
+    @Body() dto: { amountToFreelancer: number; notes: string },
+  ) {
+    return this.disputesService.proposeSettlement(id, userId, dto);
+  }
+
+  @Post(':id/accept-settlement')
+  async acceptSettlement(
+    @Param('id') id: string,
+    @User('id') userId: string,
+  ) {
+    return this.disputesService.acceptSettlement(id, userId);
+  }
+
+  @Post(':id/request-total-refund')
+  async requestTotalRefund(
+    @Param('id') id: string,
+    @User('id') userId: string,
+    @Body() dto: { notes: string },
+  ) {
+    return this.disputesService.requestTotalRefund(id, userId, dto.notes);
+  }
+
+  @Post(':id/request-total-release')
+  async requestTotalRelease(
+    @Param('id') id: string,
+    @User('id') userId: string,
+    @Body() dto: { notes: string },
+  ) {
+    return this.disputesService.requestTotalRelease(id, userId, dto.notes);
+  }
 }

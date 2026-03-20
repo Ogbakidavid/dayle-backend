@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ResolveDisputeDto,
   DisputeResolutionOutcome,
@@ -40,6 +41,9 @@ describe('DisputesService Adjudication', () => {
     vault: {
       update: jest.fn(),
     },
+    admin: {
+      findUnique: jest.fn(),
+    },
     $transaction: jest.fn((callback) => callback(mockPrisma)),
   };
 
@@ -53,6 +57,12 @@ describe('DisputesService Adjudication', () => {
           useValue: {
             releaseVault: jest.fn(),
             refundVault: jest.fn(),
+          },
+        },
+        {
+          provide: NotificationsService,
+          useValue: {
+            createNotification: jest.fn(),
           },
         },
       ],
@@ -125,7 +135,7 @@ describe('DisputesService Adjudication', () => {
     });
   });
 
-  it('should resolve dispute with SPLIT outcome', async () => {
+    it('should resolve dispute with SPLIT outcome', async () => {
     mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
     mockPrisma.user.findUnique.mockResolvedValue(mockAdmin);
 
@@ -145,12 +155,19 @@ describe('DisputesService Adjudication', () => {
         amount: 400000000000000000000n,
       }),
     });
-    // Refund 600 to client
+    // Refund 550 to client (1000 - 400 - 50 fee)
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 600000000000000000000n,
+        amount: 550000000000000000000n,
+      }),
+    });
+    // Fee 50 to treasury
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: LedgerEntryType.FEE,
+        amount: 50000000000000000000n,
       }),
     });
   });

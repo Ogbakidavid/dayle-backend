@@ -66,14 +66,14 @@ export class NotificationsGateway
             type: 'payment',
             title: 'Vault Funded',
             message: `Your vault ${payload.vaultId} has been successfully funded.`,
-            action: `/client/vaults/${payload.vaultId}`,
+            action: `/client/vault/${payload.vaultId}`,
           });
         if (payload.freelancerId)
           this.sendToUser(payload.freelancerId, 'notification', {
             type: 'payment',
             title: 'New Funding',
             message: `Vault ${payload.vaultId} is now funded and ready for work!`,
-            action: `/freelancer/vaults/${payload.vaultId}`,
+            action: `/freelancer/vault/${payload.vaultId}`,
           });
       }
     });

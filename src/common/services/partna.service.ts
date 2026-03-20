@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 export class PartnaService {
   private readonly logger = new Logger(PartnaService.name);
   private readonly baseUrl: string;
+  private readonly businessBaseUrl: string;
   private readonly apiKey: string;
   private readonly apiUser: string;
 
@@ -12,12 +13,20 @@ export class PartnaService {
     this.baseUrl =
       this.configService.get<string>('PARTNA_BASE_URL') ||
       'https://staging-vouchers.ventogram.com/api/v1';
+    this.businessBaseUrl =
+      this.configService.get<string>('PARTNA_BUSINESS_BASE_URL') ||
+      'https://staging-api.getpartna.com/v4';
     this.apiKey = this.configService.get<string>('PARTNA_API_KEY')!;
     this.apiUser = this.configService.get<string>('PARTNA_API_USER')!;
   }
 
-  private async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${this.baseUrl}${endpoint}`;
+  private async request(
+    endpoint: string,
+    options: RequestInit = {},
+    useBusinessApi: boolean = false,
+  ) {
+    const base = useBusinessApi ? this.businessBaseUrl : this.baseUrl;
+    const url = `${base}${endpoint}`;
     const headers = {
       'Content-Type': 'application/json',
       'X-Api-Key': this.apiKey,
@@ -125,22 +134,41 @@ export class PartnaService {
    * OFFRAMP: Get supported banks
    */
   async getBanks(currency: string = 'NGN') {
-    return this.request(`/banks?currency=${currency}`);
+    // v4 requires currency as a query param
+    const res = await this.request(`/banks?currency=${currency}`, {}, true);
+    return res.data || [];
   }
 
   /**
    * OFFRAMP: Resolve bank account before payout
    */
-  async resolveBankAccount(bankCode: string, accountNumber: string) {
-    // Some docs specify /.bank/.resolve while others use /resolve-bank-account
-    // We'll stick to the current working one but ensure it's exported for the controller
-    return this.request('/resolve-bank-account', {
-      method: 'POST',
-      body: JSON.stringify({
-        bank_code: bankCode,
-        account_number: accountNumber,
-      }),
-    });
+  async resolveBankAccount(
+    bankCode: string,
+    accountNumber: string,
+    currency: string = 'NGN',
+  ) {
+    // v4 uses /kyc/resolve-account and requires currency
+    const res = await this.request(
+      '/kyc/resolve-account',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          bankCode,
+          accountNumber,
+          currency,
+        }),
+      },
+      true,
+    );
+    // v4 returns { message: 'success', data: { accountName: '...', ... } }
+    // Frontend expects { account_name: '...' }
+    if (res.data) {
+      return {
+        ...res.data,
+        account_name: res.data.accountName || res.data.account_name,
+      };
+    }
+    return res;
   }
 
   /**
@@ -156,17 +184,23 @@ export class PartnaService {
       account_name: string;
     },
   ) {
-    return this.request('/create-payment', {
-      method: 'POST',
-      body: JSON.stringify({
-        amount,
-        currency,
-        reference,
-        destination_account_number: bankDetails.account_number,
-        destination_bank_code: bankDetails.bank_code,
-        destination_account_name: bankDetails.account_name,
-        type: 'bank-transfer',
-      }),
-    });
+    // v4 uses /transfer and different field names
+    return this.request(
+      '/transfer',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          amount,
+          currency,
+          transactionReference: reference,
+          toAccount: bankDetails.account_number,
+          toBankCode: bankDetails.bank_code,
+          toAccountName: bankDetails.account_name,
+          // fromAccount is usually derived from the API key/merchant context in v4
+          // but can be specified if needed.
+        }),
+      },
+      true,
+    );
   }
 }

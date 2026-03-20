@@ -4,17 +4,18 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Response, Request } from 'express';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-
-    // Debug log for 500 errors
-    console.error('Exception caught by filter:', exception);
+    const request = ctx.getRequest<Request>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_SERVER_ERROR';
@@ -31,7 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message = resp.message || exception.message;
         details = resp.details;
       } else {
-        message = exceptionResponse;
+        message = exceptionResponse as string;
       }
     } else if (exception && (exception as any).status) {
       // Fallback for cases where instanceof fails but it looks like an HttpException
@@ -41,6 +42,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
         code = resp.code || resp.error || 'ERROR';
         message = resp.message || message;
       }
+    }
+
+    // Structured logging: log 5xx as errors, skip noisy 4xx in production
+    const isServerError = status >= 500;
+    const isDev = process.env.NODE_ENV !== 'production';
+
+    if (isServerError) {
+      this.logger.error(
+        `[${status}] ${request.method} ${request.url} — ${message}`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+    } else if (isDev) {
+      this.logger.warn(
+        `[${status}] ${request.method} ${request.url} — ${code}: ${message}`,
+      );
     }
 
     response.status(status).json({

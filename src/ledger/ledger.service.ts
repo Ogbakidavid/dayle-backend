@@ -115,7 +115,10 @@ export class LedgerService {
 
     // 3. Check Balance
     const balance = await this.getBalance(userId, role);
-    const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), 18); // Defaulting to 18 decimals for now
+    // Stablecoins (cUSD, USDC, USDT) use 6 decimals; this must be consistent with
+    // getBalance() which also formats to 6 decimals. Do NOT use 18 here.
+    const DECIMALS = 6;
+    const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), DECIMALS);
 
     if (BigInt(balance.available) < withdrawAmountBigInt) {
       throw new BadRequestException({
@@ -137,9 +140,9 @@ export class LedgerService {
       const totalFees = providerFee + appFee;
       const netAmount = dto.amount - totalFees;
 
-      // BigInt conversions for ledger (using 18 decimals parity)
-      const appFeeBigInt = ethers.parseUnits(appFee.toFixed(18), 18);
-      const netAmountBigInt = ethers.parseUnits(netAmount.toFixed(18), 18);
+      // BigInt conversions for ledger — use same DECIMALS for consistency
+      const appFeeBigInt = ethers.parseUnits(appFee.toFixed(DECIMALS), DECIMALS);
+      const netAmountBigInt = ethers.parseUnits(netAmount.toFixed(DECIMALS), DECIMALS);
 
       // 4a. Create gross withdrawal entry
       const entry = await tx.ledgerEntry.create({

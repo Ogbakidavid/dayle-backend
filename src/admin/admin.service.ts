@@ -69,11 +69,71 @@ export class AdminService {
       .map(([month, volume]) => ({ month, volume }))
       .reverse();
 
+    // Dispute Load Metrics
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const activePhase2Disputes = await prisma.dispute.count({
+      where: { status: DisputeStatus.UNDER_REVIEW },
+    });
+
+    // Avg resolution time for Phase 2 (last 30 days)
+    const resolvedDisputes30d = await prisma.dispute.findMany({
+      where: {
+        status: DisputeStatus.RESOLVED,
+        resolvedAt: { gte: thirtyDaysAgo },
+      },
+      include: {
+        events: {
+          where: { eventType: 'ESCALATED' },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      },
+    });
+
+    let totalResolutionTimeMs = 0;
+    let resolvedWithPhase2Count = 0;
+
+    resolvedDisputes30d.forEach((d) => {
+      const escalatedEvent = d.events[0];
+      if (escalatedEvent && d.resolvedAt) {
+        totalResolutionTimeMs +=
+          d.resolvedAt.getTime() - escalatedEvent.createdAt.getTime();
+        resolvedWithPhase2Count++;
+      }
+    });
+
+    const avgResolutionTime30d =
+      resolvedWithPhase2Count > 0
+        ? Math.round(totalResolutionTimeMs / resolvedWithPhase2Count / (1000 * 60 * 60)) // in hours
+        : 0;
+
+    // Dispute Rate (last 30 days)
+    const disputesCreated30d = await prisma.dispute.count({
+      where: { createdAt: { gte: thirtyDaysAgo } },
+    });
+
+    const vaultsCompleted30d = await prisma.vault.count({
+      where: {
+        status: { in: [VaultStatus.RELEASED, VaultStatus.REFUNDED] },
+        updatedAt: { gte: thirtyDaysAgo },
+      },
+    });
+
+    const disputeRate30d =
+      vaultsCompleted30d > 0
+        ? Number(((disputesCreated30d / vaultsCompleted30d) * 100).toFixed(1))
+        : 0;
+
     return {
       totalUsers,
       activeVaults,
       totalVolume: ethers.formatUnits(totalVolume._sum?.amount || BigInt(0), 6),
       pendingDisputes,
+      activePhase2Disputes,
+      avgResolutionTime30d,
+      disputeRate30d,
       volumeTrends: volumeTrends.map((t) => ({
         month: t.month,
         volume: ethers.formatUnits(t.volume, 6),
@@ -334,6 +394,7 @@ export class AdminService {
     dto: ResolveDisputeDto,
   ) {
     const prisma = this.prisma;
+
     const dispute = await prisma.dispute.findUnique({
       where: { id },
       include: { vault: true },

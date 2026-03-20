@@ -701,4 +701,47 @@ export class BlockchainService implements OnModuleInit {
       throw error;
     }
   }
+  /**
+   * Settle a vault with a custom split (Partially release, partially refund)
+   * Only the arbiter (this service's wallet) can call this.
+   */
+  public async settleVault(
+    vaultAddress: string,
+    freelancerAmountWei: bigint,
+    clientAmountWei: bigint,
+    treasuryAmountWei: bigint,
+  ): Promise<string> {
+    if (!this.treasuryWallet) {
+      throw new Error('Treasury/Arbiter Wallet not configured.');
+    }
+
+    try {
+      this.logger.log(
+        `Backend settling vault ${vaultAddress} on-chain: Freelancer=${freelancerAmountWei}, Client=${clientAmountWei}, Treasury=${treasuryAmountWei}`,
+      );
+      const vaultContract = new ethers.Contract(
+        vaultAddress,
+        VaultImplementationABI,
+        this.treasuryWallet,
+      );
+
+      const tx = await vaultContract.settle(
+        freelancerAmountWei,
+        clientAmountWei,
+        treasuryAmountWei,
+      );
+      const receipt = await tx.wait();
+
+      this.logger.log(
+        `Vault ${vaultAddress} successfully settled on-chain: ${receipt.hash}`,
+      );
+      return receipt.hash;
+    } catch (error) {
+      this.logger.error(
+        `Error settling vault ${vaultAddress} on-chain:`,
+        error,
+      );
+      throw error;
+    }
+  }
 }

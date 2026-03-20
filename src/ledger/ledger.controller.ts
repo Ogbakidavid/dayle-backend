@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Query, Body } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { LedgerService } from './ledger.service';
 import { User } from '../common/decorators/user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,6 +34,7 @@ export class LedgerController {
 
   @Post('withdraw')
   @Roles(UserRole.FREELANCER)
+  @Throttle({ payment: { ttl: 60000, limit: 10 } })
   async withdraw(
     @User('id') userId: string,
     @User('role') role: UserRole,

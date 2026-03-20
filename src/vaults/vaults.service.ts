@@ -427,7 +427,7 @@ export class VaultsService {
       type: 'payment',
       title: 'Deposit Initiated',
       message: `Your deposit for vault "${vault.title}" has been initiated and is awaiting confirmation.`,
-      action: `/client/vaults/${id}`,
+      action: `/client/vault/${id}`,
     });
 
     return {
@@ -674,7 +674,7 @@ export class VaultsService {
       type: 'payment',
       title: 'Funds Refunded',
       message: `The funds for vault "${vault.title}" have been successfully refunded to your account.`,
-      action: `/client/vaults/${vaultId}`,
+      action: `/client/vault/${vaultId}`,
     });
 
     return result;

@@ -43,6 +43,36 @@ export class PaycrestService {
     }
   }
 
+  async getBanks(currency: string = 'NGN') {
+    const res = await this.request(`/institutions/${currency}`);
+    return res.data || [];
+  }
+
+  async resolveBankAccount(
+    bankCode: string,
+    accountNumber: string,
+    currency: string = 'NGN',
+  ) {
+    // v1 uses /verify-account and requires currency
+    const res = await this.request('/verify-account', {
+      method: 'POST',
+      body: JSON.stringify({
+        institution: bankCode,
+        accountIdentifier: accountNumber,
+        currency,
+      }),
+    });
+    // Paycrest returns { data: { accountName: '...' } }
+    // Frontend expects { account_name: '...' }
+    if (res.data) {
+      return {
+        ...res.data,
+        account_name: res.data.accountName || res.data.account_name,
+      };
+    }
+    return res;
+  }
+
   async createOrder(params: {
     amount: number;
     currency: string;

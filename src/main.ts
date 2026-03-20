@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import * as dns from 'node:dns';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -18,6 +19,14 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
+  // Security HTTP Headers (XSS, Clickjacking protection, etc.)
+  app.use(
+    helmet({
+      // Allow cross-origin requests needed for API communication
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
@@ -30,7 +39,8 @@ async function bootstrap() {
   // Global exception filter
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // CORS
+  // CORS — Wildcard suffixes only allowed in non-production environments for developer tooling
+  const isProduction = process.env.NODE_ENV === 'production';
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)
@@ -46,10 +56,11 @@ async function bootstrap() {
         process.env.ADMIN_URL,
       ].filter(Boolean);
 
+      const isDev = !isProduction;
       const isAllowed =
         allowedOrigins.includes(origin) ||
-        origin.endsWith('.ngrok-free.dev') ||
-        origin.endsWith('.netlify.app');
+        (isDev && origin.endsWith('.ngrok-free.dev')) ||
+        (isDev && origin.endsWith('.netlify.app'));
 
       if (isAllowed) {
         callback(null, true);

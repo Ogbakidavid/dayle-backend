@@ -9,6 +9,7 @@ import {
   Delete,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -64,6 +65,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ auth: { ttl: 60000, limit: 5 } })
   @Post('privy-login')
   async privyLogin(
     @Body() dto: { accessToken: string; role?: string },

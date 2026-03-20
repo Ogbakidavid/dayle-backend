@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BadRequestException } from '@nestjs/common';
 import { VaultStatus, UserRole } from '../domain/enums';
 
@@ -24,6 +25,12 @@ describe('DisputesService', () => {
         {
           provide: BlockchainService,
           useValue: {},
+        },
+        {
+          provide: NotificationsService,
+          useValue: {
+            createNotification: jest.fn(),
+          },
         },
       ],
     }).compile();

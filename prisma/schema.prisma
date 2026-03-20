@@ -43,34 +43,29 @@ model PaymentMethod {
   userId        String
   type          PaymentMethodType
   provider      String?           @default("PARTNA")
-  brand         String? // VISA, MASTERCARD, VERVE, etc.
+  brand         String?
   last4         String?
   expiryMonth   Int?
   expiryYear    Int?
-  firstName     String?
-  lastName      String?
-  addressLine1  String?
-  addressLine2  String?
-  city          String?
-  state         String?
-  postalCode    String?
-  country       String?
   accountName   String?
-  accountNumber String? // Masked
+  accountNumber String?
   bankName      String?
   bankCode      String?
   isDefault     Boolean           @default(false)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  country       String?
+  firstName     String?
+  lastName      String?
+  postalCode    String?
+  state         String?
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([type])
-}
-
-enum PaymentMethodType {
-  CARD
-  BANK_TRANSFER
 }
 
 model Admin {
@@ -193,24 +188,25 @@ model Submission {
 }
 
 model Dispute {
-  id               String         @id @default(uuid())
-  vaultId          String
-  disputeType      DisputeType
-  reasonCode       String
-  openedByUserId   String
-  openedByRole     UserRole
-  status           DisputeStatus  @default(OPEN)
-  description      String
-  resolution       String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  resolvedAt       DateTime?
-  deliverableId    String?
-  deliverableTitle String?
-  openedBy         User           @relation(fields: [openedByUserId], references: [id])
-  vault            Vault          @relation(fields: [vaultId], references: [id])
-  events           DisputeEvent[]
-  evidence         Evidence[]
+  id                        String         @id @default(uuid())
+  vaultId                   String
+  disputeType               DisputeType
+  reasonCode                String
+  openedByUserId            String
+  openedByRole              UserRole
+  status                    DisputeStatus  @default(OPEN)
+  description               String
+  resolution                String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  resolvedAt                DateTime?
+  deliverableId             String?
+  deliverableTitle          String?
+  resolutionWindowExpiresAt DateTime?
+  openedBy                  User           @relation(fields: [openedByUserId], references: [id])
+  vault                     Vault          @relation(fields: [vaultId], references: [id])
+  events                    DisputeEvent[]
+  evidence                  Evidence[]
 
   @@index([vaultId])
   @@index([status])
@@ -355,6 +351,11 @@ model RefundRequest {
   @@index([status])
 }
 
+enum PaymentMethodType {
+  CARD
+  BANK_TRANSFER
+}
+
 enum VaultStatus {
   DRAFT
   FUNDED
@@ -377,6 +378,7 @@ enum DisputeStatus {
   NEEDS_INFO
   RESOLVED
   REJECTED
+  MUTUAL_RESOLUTION
 }
 
 enum TransactionStatus {

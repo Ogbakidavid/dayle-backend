@@ -225,7 +225,7 @@ export class WebhooksService {
             type: 'payment',
             title: 'Deposit Confirmed',
             message: `Your deposit for vault "${vault.title}" has been confirmed and the vault is now funded.`,
-            action: `/client/vaults/${vault.id}`,
+            action: `/client/vault/${vault.id}`,
           });
 
           // If there's a freelancer, notify them too

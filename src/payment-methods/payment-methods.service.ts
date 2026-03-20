@@ -35,7 +35,9 @@ export class PaymentMethodsService {
     },
   ) {
     // Basic server-side validation
-    if (data.last4.length !== 4) {
+    // Enforce last4 is always exactly 4 digits — even if client sends full card number
+    const maskedLast4 = data.last4.replace(/\D/g, '').slice(-4);
+    if (maskedLast4.length !== 4) {
       throw new Error('Invalid card data: last4 must be 4 digits');
     }
     if (
@@ -59,7 +61,7 @@ export class PaymentMethodsService {
         userId,
         type: PaymentMethodType.CARD,
         brand: data.brand,
-        last4: data.last4,
+        last4: maskedLast4, // Always store only the server-enforced masked value
         expiryMonth: data.expiryMonth,
         expiryYear: data.expiryYear,
         firstName: data.firstName,
@@ -99,7 +101,8 @@ export class PaymentMethodsService {
         userId,
         type: PaymentMethodType.BANK_TRANSFER,
         accountName: data.accountName,
-        accountNumber: data.accountNumber,
+        // Enforce masking on the server — always store only last 4 digits
+        accountNumber: `••••${data.accountNumber.replace(/\D/g, '').slice(-4)}`,
         bankName: data.bankName,
         bankCode: data.bankCode,
         isDefault: !!data.isDefault,

@@ -20,22 +20,25 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const route = `${request.method} ${request.url}`;
+    const isDev = process.env.NODE_ENV !== 'production';
 
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
 
-    console.log(`[AuthGuard] Route: ${route}, isPublic: ${isPublic}`);
-    console.log('[AuthGuard] All cookies:', JSON.stringify(request.cookies));
-    console.log('[AuthGuard] All headers:', JSON.stringify(request.headers));
+    if (isDev) {
+      console.debug(`[AuthGuard] Route: ${route}, isPublic: ${isPublic}`);
+    }
 
     if (isPublic) {
       return true;
     }
 
     const token = this.extractTokenFromHeader(request);
-    console.log('[AuthGuard] Extracted token:', token ? 'exists' : 'null');
+    if (isDev) {
+      console.debug(`[AuthGuard] Extracted token: ${token ? 'exists' : 'null'}`);
+    }
 
     if (!token) {
       throw new UnauthorizedException({
@@ -47,7 +50,7 @@ export class AuthGuard implements CanActivate {
     // Check Redis blacklist
     const isBlacklisted = await this.redis.get(`blacklist:${token}`);
     if (isBlacklisted) {
-      console.log('[AuthGuard] Token is blacklisted');
+      if (isDev) console.debug('[AuthGuard] Token is blacklisted');
       throw new UnauthorizedException({
         code: 'UNAUTHORIZED',
         message: 'This session has been revoked',
@@ -68,20 +71,21 @@ export class AuthGuard implements CanActivate {
   }
 
   private extractTokenFromHeader(request: any): string | undefined {
+    const isDev = process.env.NODE_ENV !== 'production';
     // Check Authorization header first (preferred for explicit API calls)
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     if (type === 'Bearer') {
-      console.log('[AuthGuard] Token found in Authorization header');
+      if (isDev) console.debug('[AuthGuard] Token found in Authorization header');
       return token;
     }
 
     // Check cookies as fallback
     if (request.cookies?.access_token) {
-      console.log('[AuthGuard] Token found in access_token cookie');
+      if (isDev) console.debug('[AuthGuard] Token found in access_token cookie');
       return request.cookies.access_token;
     }
 
-    console.log('[AuthGuard] No token found in headers or cookies');
+    if (isDev) console.debug('[AuthGuard] No token found in headers or cookies');
     return undefined;
   }
 }

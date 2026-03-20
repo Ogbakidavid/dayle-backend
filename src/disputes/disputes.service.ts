@@ -7,12 +7,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import {
   ResolveDisputeDto,
   DisputeResolutionOutcome,
 } from './dto/resolve-dispute.dto';
+// ... (imports remain same)
 import {
   DisputeStatus,
   UserRole,
@@ -27,7 +29,61 @@ export class DisputesService {
   constructor(
     private prisma: PrismaService,
     private blockchainService: BlockchainService,
+    private notificationsService: NotificationsService,
   ) {}
+
+  private calculateNewExpiry(dispute: any): Date {
+    const now = Date.now();
+    const fortyEightHours = 48 * 60 * 60 * 1000;
+    const ninetySixHours = 96 * 60 * 60 * 1000;
+
+    const createdAt = new Date(dispute.createdAt).getTime();
+    const maxExpiry = createdAt + ninetySixHours;
+    const proposedExpiry = now + fortyEightHours;
+
+    return new Date(Math.min(proposedExpiry, maxExpiry));
+  }
+
+  private async escalateToPhase2(id: string, tx: any) {
+    await tx.dispute.update({
+      where: { id },
+      data: { status: DisputeStatus.UNDER_REVIEW as any },
+    });
+
+    await tx.disputeEvent.create({
+      data: {
+        disputeId: id,
+        eventType: 'ESCALATED',
+        payload: {
+          reason: '96-hour limit exceeded',
+        },
+      },
+    });
+
+    // Notify parties
+    const dispute = await tx.dispute.findUnique({
+      where: { id },
+      include: { vault: true },
+    });
+
+    const msg = "The mutual resolution window has closed. Your dispute is now under platform review.";
+    await this.notificationsService.createNotification(dispute.vault.clientId, {
+      type: 'dispute',
+      title: 'Dispute Escalated',
+      message: msg,
+      action: `/client/dispute/${id}`,
+    });
+    if (dispute.vault.freelancerId) {
+      await this.notificationsService.createNotification(dispute.vault.freelancerId, {
+        type: 'dispute',
+        title: 'Dispute Escalated',
+        message: msg,
+        action: `/freelancer/dispute/${id}`,
+      });
+    }
+  }
+
+  // ... (create, list, getById, investigate methods)
 
   async create(userId: string, role: UserRole, dto: CreateDisputeDto) {
     const prisma = this.prisma;
@@ -73,6 +129,9 @@ export class DisputesService {
       });
 
       // 2. Create Dispute
+      const resolutionWindow = 48 * 60 * 60 * 1000; // 48 hours
+      const expiresAt = new Date(Date.now() + resolutionWindow);
+
       const newDispute = await tx.dispute.create({
         data: {
           vaultId: dto.vaultId,
@@ -82,8 +141,9 @@ export class DisputesService {
           reasonCode: dto.reasonCode,
           openedByUserId: userId,
           openedByRole: role,
-          status: DisputeStatus.OPEN as any,
+          status: DisputeStatus.MUTUAL_RESOLUTION as any,
           description: dto.description,
+          resolutionWindowExpiresAt: expiresAt,
         } as any,
         include: { events: true },
       });
@@ -333,19 +393,28 @@ export class DisputesService {
         }
       } else if (outcome === DisputeResolutionOutcome.SPLIT) {
         const decimals = (dispute.vault as any).tokenDecimals || 18;
-
+        const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
         const splitAmountBigInt = ethers.parseUnits(
           splitAmount!.toString(),
           decimals,
         );
 
-        const vaultAmount = BigInt(amount);
-
-        if (splitAmountBigInt <= 0n || splitAmountBigInt > vaultAmount) {
+        if (splitAmountBigInt <= 0n || splitAmountBigInt > vaultAmountBigInt) {
           throw new BadRequestException('Invalid split amount');
         }
 
-        const refundAmount = vaultAmount - splitAmountBigInt;
+        // Fetch protocol fee from factory or vault if not in DB
+        // For now, we'll use a default or fetch from the contract (simplified)
+        // Ideally, protocolFeeBps is in the Vault model.
+        const protocolFeeBps = (dispute.vault as any).protocolFeeBps || 500; // Default 5% if not found
+        const treasuryAmountBigInt =
+          (vaultAmountBigInt * BigInt(protocolFeeBps)) / 10000n;
+        
+        const availableForSplit = vaultAmountBigInt - treasuryAmountBigInt;
+        
+        // Ensure freelancer split doesn't exceed available after fee
+        const freelancerAmountBigInt = splitAmountBigInt > availableForSplit ? availableForSplit : splitAmountBigInt;
+        const clientAmountBigInt = vaultAmountBigInt - freelancerAmountBigInt - treasuryAmountBigInt;
 
         // Release splitAmount to freelancer
         await tx.ledgerEntry.create({
@@ -353,7 +422,7 @@ export class DisputesService {
             userId: dispute.vault.freelancerId!,
             vaultId: dispute.vaultId,
             type: LedgerEntryType.RELEASE,
-            amount: splitAmountBigInt,
+            amount: freelancerAmountBigInt,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution SPLIT (Release): ${notes}`,
             disputeId: id,
@@ -367,9 +436,23 @@ export class DisputesService {
             userId: dispute.vault.clientId,
             vaultId: dispute.vaultId,
             type: LedgerEntryType.REFUND,
-            amount: refundAmount,
+            amount: clientAmountBigInt,
             status: TransactionStatus.CONFIRMED,
             description: `Dispute Resolution SPLIT (Refund): ${notes}`,
+            disputeId: id,
+            completedAt: new Date(),
+          },
+        });
+
+        // Log Fee
+        await tx.ledgerEntry.create({
+          data: {
+            userId: adminId, // Routing to treasury conceptually
+            vaultId: dispute.vaultId,
+            type: LedgerEntryType.FEE,
+            amount: treasuryAmountBigInt,
+            status: TransactionStatus.CONFIRMED,
+            description: `Dispute Resolution SPLIT (Fee): ${notes}`,
             disputeId: id,
             completedAt: new Date(),
           },
@@ -380,6 +463,16 @@ export class DisputesService {
           where: { id: dispute.vaultId },
           data: { status: VaultStatus.RELEASED as any },
         });
+
+        // TRIGGER ON-CHAIN SETTLE
+        if (dispute.vault.vaultAddress) {
+          await this.blockchainService.settleVault(
+            dispute.vault.vaultAddress,
+            freelancerAmountBigInt,
+            clientAmountBigInt,
+            treasuryAmountBigInt,
+          );
+        }
       }
 
       // 2. Update Dispute
@@ -407,5 +500,249 @@ export class DisputesService {
     });
 
     return resolution;
+  }
+  async proposeSettlement(
+    id: string,
+    userId: string,
+    dto: { amountToFreelancer: number; notes: string },
+  ) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: { vault: true },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+    }
+
+    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    const updatedDispute = await prisma.$transaction(async (tx) => {
+      // 1. Check for 96-hour cap
+      const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
+      if (elapsed >= 96 * 60 * 60 * 1000) {
+        await this.escalateToPhase2(id, tx);
+        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+      }
+
+      // Split Validation (10% - 90%)
+      const decimals = (dispute.vault as any).tokenDecimals || 18;
+      const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
+      
+      // Calculate 10% and 90% boundaries accurately using BigInt
+      const tenPercentLimit = vaultAmountBigInt / 10n;
+      const ninetyPercentLimit = (vaultAmountBigInt * 9n) / 10n;
+      
+      // Convert proposed amount to BigInt for comparison
+      const proposedBigInt = ethers.parseUnits(
+        dto.amountToFreelancer.toString(),
+        decimals,
+      );
+
+      if (proposedBigInt < tenPercentLimit || proposedBigInt > ninetyPercentLimit) {
+        throw new BadRequestException("For full refund or full release, please use the dedicated buttons.");
+      }
+
+      // 2. Reset Timer
+      const newExpiry = this.calculateNewExpiry(dispute);
+      await tx.dispute.update({
+        where: { id },
+        data: { resolutionWindowExpiresAt: newExpiry },
+      });
+
+      // 3. Log Propose Event
+      await tx.disputeEvent.create({
+        data: {
+          disputeId: id,
+          actorId: userId,
+          eventType: 'SETTLEMENT_PROPOSED',
+          payload: {
+            amountToFreelancer: dto.amountToFreelancer,
+            notes: dto.notes,
+          },
+        },
+      });
+
+      // 4. Send Notifications
+      const msg = "New offer received — the 48-hour window has been reset.";
+      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      if (otherPartyId) {
+        await this.notificationsService.createNotification(otherPartyId, {
+          type: 'dispute',
+          title: 'New Offer Received',
+          message: msg,
+          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+        });
+      }
+
+      return dispute;
+    });
+
+    return updatedDispute;
+  }
+
+  async requestTotalRefund(id: string, userId: string, notes: string) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: { vault: true },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+    }
+
+    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    return await prisma.$transaction(async (tx) => {
+      // 1. Check for 96-hour cap
+      const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
+      if (elapsed >= 96 * 60 * 60 * 1000) {
+        await this.escalateToPhase2(id, tx);
+        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+      }
+
+      // 2. Reset Timer
+      const newExpiry = this.calculateNewExpiry(dispute);
+      await tx.dispute.update({
+        where: { id },
+        data: { resolutionWindowExpiresAt: newExpiry },
+      });
+
+      // 3. Log Event
+      await tx.disputeEvent.create({
+        data: {
+          disputeId: id,
+          actorId: userId,
+          eventType: 'TOTAL_REFUND_REQUESTED',
+          payload: { notes },
+        },
+      });
+
+      // 4. Notifications
+      const msg = "New offer received — the 48-hour window has been reset.";
+      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      if (otherPartyId) {
+        await this.notificationsService.createNotification(otherPartyId, {
+          type: 'dispute',
+          title: 'Total Refund Requested',
+          message: msg,
+          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+        });
+      }
+
+      return dispute;
+    });
+  }
+
+  async requestTotalRelease(id: string, userId: string, notes: string) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: { vault: true },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+    }
+
+    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    return await prisma.$transaction(async (tx) => {
+      // 1. Check for 96-hour cap
+      const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
+      if (elapsed >= 96 * 60 * 60 * 1000) {
+        await this.escalateToPhase2(id, tx);
+        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+      }
+
+      // 2. Reset Timer
+      const newExpiry = this.calculateNewExpiry(dispute);
+      await tx.dispute.update({
+        where: { id },
+        data: { resolutionWindowExpiresAt: newExpiry },
+      });
+
+      // 3. Log Event
+      await tx.disputeEvent.create({
+        data: {
+          disputeId: id,
+          actorId: userId,
+          eventType: 'TOTAL_RELEASE_REQUESTED',
+          payload: { notes },
+        },
+      });
+
+      // 4. Notifications
+      const msg = "New offer received — the 48-hour window has been reset.";
+      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      if (otherPartyId) {
+        await this.notificationsService.createNotification(otherPartyId, {
+          type: 'dispute',
+          title: 'Total Release Requested',
+          message: msg,
+          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+        });
+      }
+
+      return dispute;
+    });
+  }
+
+  async acceptSettlement(id: string, userId: string) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: { vault: true, events: { orderBy: { createdAt: 'desc' } } },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException('No active mutual resolution phase');
+    }
+
+    // Find latest proposal
+    const lastProposal = dispute.events.find(
+      (e) => e.eventType === 'SETTLEMENT_PROPOSED',
+    );
+    if (!lastProposal) throw new BadRequestException('No settlement proposal found');
+
+    const proposalActorId = lastProposal.actorId;
+    if (proposalActorId === userId) {
+      throw new BadRequestException('You cannot accept your own proposal');
+    }
+
+    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    const { amountToFreelancer, notes } = lastProposal.payload as any;
+
+    // Split Validation (10% - 90%) - Secondary safety check
+    const decimals = (dispute.vault as any).tokenDecimals || 18;
+    const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
+    const tenPercentLimit = vaultAmountBigInt / 10n;
+    const ninetyPercentLimit = (vaultAmountBigInt * 9n) / 10n;
+    const proposedBigInt = ethers.parseUnits(
+      amountToFreelancer.toString(),
+      decimals,
+    );
+
+    if (proposedBigInt < tenPercentLimit || proposedBigInt > ninetyPercentLimit) {
+      throw new BadRequestException("For full refund or full release, please use the dedicated buttons.");
+    }
+
+    // Trigger resolve logic but as participants
+    return this.resolve(id, userId, 'PARTICIPANT', {
+      outcome: DisputeResolutionOutcome.SPLIT,
+      splitAmount: amountToFreelancer,
+      notes: `Accepted Mutual Resolution: ${notes}`,
+    });
   }
 }

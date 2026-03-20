@@ -25,6 +25,7 @@ export enum VerificationResult {
 
 export enum DisputeStatus {
   OPEN = 'OPEN',
+  MUTUAL_RESOLUTION = 'MUTUAL_RESOLUTION',
   UNDER_REVIEW = 'UNDER_REVIEW',
   NEEDS_INFO = 'NEEDS_INFO',
   RESOLVED = 'RESOLVED',

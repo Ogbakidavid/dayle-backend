@@ -50,7 +50,14 @@ import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        throttlers: [{ ttl: 60000, limit: 100 }],
+        throttlers: [
+          // Default global limit: 100 requests per minute
+          { name: 'default', ttl: 60000, limit: 100 },
+          // Payment endpoints: max 10 requests per minute (funding, withdrawals)
+          { name: 'payment', ttl: 60000, limit: 10 },
+          // Auth endpoints: max 5 requests per minute (login, token refresh)
+          { name: 'auth', ttl: 60000, limit: 5 },
+        ],
         storage: new ThrottlerStorageRedisService(
           configService.get<string>('REDIS_URL'),
         ),

@@ -6,6 +6,7 @@ import { PaymentRouter } from '../common/services/payment-router.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { InvitesService } from '../invites/invites.service';
 import { MailsService } from '../notifications/mails.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
 describe('VaultsService', () => {
   let service: VaultsService;
@@ -56,6 +57,10 @@ describe('VaultsService', () => {
         {
           provide: ConfigService,
           useValue: { get: jest.fn() },
+        },
+        {
+          provide: NotificationsService,
+          useValue: { createNotification: jest.fn() },
         },
       ],
     }).compile();

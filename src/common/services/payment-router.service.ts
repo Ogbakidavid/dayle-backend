@@ -25,8 +25,9 @@ export class PaymentRouter {
     currency: string,
     country?: string,
   ): PaymentProvider {
-    const partnaSupported = ['NGN', 'GHS', 'KES'];
-    if (partnaSupported.includes(currency.toUpperCase())) {
+    const uc = currency.toUpperCase();
+    if (uc === 'GHS') return PaymentProvider.PAYCREST;
+    if (['NGN', 'KES'].includes(uc)) {
       return PaymentProvider.PARTNA;
     }
     return PaymentProvider.PAYCREST;

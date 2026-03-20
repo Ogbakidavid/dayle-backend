@@ -3,6 +3,7 @@ import { LedgerService } from './ledger.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('LedgerService', () => {
   let service: LedgerService;
@@ -22,6 +23,10 @@ describe('LedgerService', () => {
         {
           provide: ConfigService,
           useValue: { get: jest.fn() },
+        },
+        {
+          provide: NotificationsService,
+          useValue: { createNotification: jest.fn() },
         },
       ],
     }).compile();
