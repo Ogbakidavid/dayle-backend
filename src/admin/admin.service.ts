@@ -31,11 +31,18 @@ export class AdminService {
     const pendingDisputes = await prisma.dispute.count({
       where: { status: DisputeStatus.OPEN },
     });
-    const totalVolume = await prisma.ledgerEntry.aggregate({
-      _sum: { amount: true },
+    const totalVolume = await prisma.vault.aggregate({
+      _sum: { totalAmount: true },
       where: { 
-        type: { in: [LedgerEntryType.RELEASE, LedgerEntryType.REFUND] }, 
-        status: TransactionStatus.CONFIRMED 
+        status: { 
+          in: [
+            VaultStatus.FUNDED, 
+            VaultStatus.RELEASED, 
+            VaultStatus.DISPUTED, 
+            VaultStatus.WITHDRAWAL_PENDING,
+            VaultStatus.REFUNDED
+          ] 
+        } 
       },
     });
 
@@ -162,7 +169,7 @@ export class AdminService {
     return {
       totalUsers,
       activeVaults,
-      totalVolume: ethers.formatUnits(totalVolume._sum?.amount || BigInt(0), 6),
+      totalVolume: ethers.formatUnits(totalVolume._sum?.totalAmount || BigInt(0), 6),
       pendingWithdrawals,
       platformRevenue: ethers.formatUnits(platformRevenue._sum?.amount || BigInt(0), 6),
       pendingDisputes,
