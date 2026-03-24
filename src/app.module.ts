@@ -5,6 +5,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ClsModule } from 'nestjs-cls';
 import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -28,9 +29,12 @@ import { ServicesModule } from './common/services/services.module';
 import { AuditModule } from './audit/audit.module';
 import { RlsInterceptor } from './common/interceptors/rls.interceptor';
 import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
+import { RatesModule } from './rates/rates.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     ClsModule.forRoot({
       global: true,
       middleware: { mount: true },
@@ -51,12 +55,14 @@ import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         throttlers: [
-          // Default global limit: 100 requests per minute
-          { name: 'default', ttl: 60000, limit: 100 },
-          // Payment endpoints: max 10 requests per minute (funding, withdrawals)
-          { name: 'payment', ttl: 60000, limit: 10 },
-          // Auth endpoints: max 5 requests per minute (login, token refresh)
-          { name: 'auth', ttl: 60000, limit: 5 },
+          // Default global limit: 1000 requests per minute
+          { name: 'default', ttl: 60000, limit: 1000 },
+          // Payment endpoints: max 100 requests per minute
+          { name: 'payment', ttl: 60000, limit: 100 },
+          // Auth endpoints: max 100 requests per minute
+          { name: 'auth', ttl: 60000, limit: 100 },
+          // Rate endpoints: max 2000 requests per minute
+          { name: 'rates', ttl: 60000, limit: 2000 },
         ],
         storage: new ThrottlerStorageRedisService(
           configService.get<string>('REDIS_URL'),
@@ -88,6 +94,7 @@ import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
     AuditModule,
     AdminAuthModule,
     PaymentMethodsModule,
+    RatesModule,
   ],
   controllers: [AppController],
   providers: [

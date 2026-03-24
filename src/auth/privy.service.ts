@@ -1,26 +1,27 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { verifyAccessToken } from '@privy-io/node';
+import { PrivyClient, verifyAccessToken } from '@privy-io/node';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet } from 'jose';
 
 @Injectable()
 export class PrivyService implements OnModuleInit {
+  private client: PrivyClient | undefined;
   private appId: string | undefined;
-  private appSecret: string | undefined;
   private verificationKey: any;
 
   constructor(private configService: ConfigService) {}
 
   onModuleInit() {
     this.appId = this.configService.get<string>('PRIVY_APP_ID');
-    this.appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
+    const appSecret = this.configService.get<string>('PRIVY_APP_SECRET');
 
-    if (!this.appId || !this.appSecret) {
+    if (!this.appId || !appSecret) {
       console.warn('PRIVY_APP_ID or PRIVY_APP_SECRET not set.');
       return;
     }
 
     console.log(`Initializing PrivyService with App ID: ${this.appId}`);
+    this.client = new PrivyClient({ appId: this.appId, appSecret });
 
     // Use Privy's JWKS endpoint for access token verification
     this.verificationKey = createRemoteJWKSet(
@@ -29,15 +30,15 @@ export class PrivyService implements OnModuleInit {
   }
 
   async verifyToken(token: string) {
-    if (!this.verificationKey) {
+    if (!this.appId || !this.verificationKey) {
       throw new Error(
-        'PrivyService not initialized — missing PRIVY_APP_ID or PRIVY_APP_SECRET',
+        'PrivyService not initialized — missing PRIVY_APP_ID or verificationKey',
       );
     }
     try {
       return await verifyAccessToken({
         access_token: token,
-        app_id: this.appId as string,
+        app_id: this.appId,
         verification_key: this.verificationKey,
       });
     } catch (e) {
@@ -47,29 +48,12 @@ export class PrivyService implements OnModuleInit {
   }
 
   async getUser(userId: string) {
-    if (!this.appId || !this.appSecret) {
+    if (!this.client) {
       throw new Error('PrivyService not initialized');
     }
     try {
-      // Use Privy REST API directly with Basic auth
-      const credentials = Buffer.from(
-        `${this.appId}:${this.appSecret}`,
-      ).toString('base64');
-      const response = await fetch(`https://api.privy.io/v1/users/${userId}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'privy-app-id': this.appId,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Privy API error ${response.status}: ${error}`);
-      }
-
-      return await response.json();
+      // client.users() returns the users service, and _get is the method to fetch by ID
+      return await this.client.users()._get(userId);
     } catch (e) {
       console.error(`Privy getUser failed for ${userId}:`, e);
       throw e;

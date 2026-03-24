@@ -19,6 +19,13 @@ model User {
   twoFactorSecret         String?
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
+  bvn                     String?                  @unique
+  country                 String?
+  phoneNumber             String?
+  paymentAccountReady     Boolean                  @default(false)
+  partnaCustomerId        String?
+  partnaAccountRef        String?
+  identityAttempts        Int                      @default(0)
   disputes                Dispute[]
   evidenceCreated         Evidence[]
   invitesSent             Invite[]                 @relation("InvitesSent")
@@ -36,6 +43,7 @@ model User {
   @@index([email])
   @@index([role])
   @@index([kycStatus])
+  @@index([country])
 }
 
 model PaymentMethod {
@@ -94,8 +102,8 @@ model KycData {
   userId            String    @unique
   fullName          String
   dateOfBirth       DateTime
-  address           String
-  idDocumentUrl     String
+  address           String?
+  idDocumentUrl     String?
   proofOfAddressUrl String?
   submittedAt       DateTime  @default(now())
   reviewedAt        DateTime?
@@ -122,37 +130,63 @@ model Session {
 }
 
 model Vault {
-  id            String         @id @default(uuid())
-  title         String
-  description   String?
-  status        VaultStatus    @default(DRAFT)
-  totalAmount   BigInt
-  clientId      String
-  freelancerId  String?
-  isFrozen      Boolean        @default(false)
-  frozenReason  String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  amount        BigInt         @default(0)
-  chainId       Int
-  tokenAddress  String
-  tokenDecimals Int
-  tokenSymbol   String?
-  vaultAddress  String?        @unique
-  type          VaultType      @default(FIXED_PRICE)
-  deliverables  Deliverable[]
-  disputes      Dispute[]
-  invites       Invite[]
-  ledgerEntries LedgerEntry[]
-  refundRequest RefundRequest?
-  submissions   Submission[]
-  client        User           @relation("ClientVaults", fields: [clientId], references: [id])
-  freelancer    User?          @relation("FreelancerVaults", fields: [freelancerId], references: [id])
+  id                     String         @id @default(uuid())
+  title                  String
+  description            String?
+  status                 VaultStatus    @default(DRAFT)
+  totalAmount            BigInt
+  clientId               String
+  freelancerId           String?
+  isFrozen               Boolean        @default(false)
+  frozenReason           String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  amount                 BigInt         @default(0)
+  chainId                Int
+  tokenAddress           String
+  tokenDecimals          Int
+  tokenSymbol            String?
+  vaultAddress           String?        @unique
+  type                   VaultType      @default(FIXED_PRICE)
+  partnaVoucherCreatedAt DateTime?
+  partnaVoucherId        String?        @unique
+  partnaAccountName      String?
+  partnaAccountNumber    String?
+  partnaBankName         String?
+  partnaExpectedAmount   Float?
+  partnaExpiryDate       DateTime?
+  partnaRampReference    String?        @unique
+  partnaRateKey          String?
+  partnaFromAmount       Float?
+  partnaFromCurrency     String?
+  paycrestOrderId        String?        @unique
+  paycrestReceiveAddress String?
+  paycrestValidUntil     DateTime?
+  paycrestRate           Float?
+  paycrestOrderCreatedAt DateTime?
+  unitAmount             Int?
+  deliverables           Deliverable[]
+  disputes               Dispute[]
+  invites                Invite[]
+  ledgerEntries          LedgerEntry[]
+  refundRequest          RefundRequest?
+  submissions            Submission[]
+  client                 User           @relation("ClientVaults", fields: [clientId], references: [id])
+  freelancer             User?           @relation("FreelancerVaults", fields: [freelancerId], references: [id])
+  settlementFeeUSD       Decimal?
+  processingFeeUSD       Decimal?
+  totalFeeUSD            Decimal?
+  freelancerReceivesUSD  Decimal?
+  localCurrency         String?
+  localAmount           Float?
 
   @@index([clientId])
   @@index([freelancerId])
   @@index([status])
   @@index([createdAt])
+  @@index([partnaVoucherId])
+  @@index([partnaRampReference])
+  @@index([paycrestOrderId])
 }
 
 model Deliverable {
@@ -351,6 +385,22 @@ model RefundRequest {
   @@index([status])
 }
 
+model ExchangeRateLog {
+  id          String   @id @default(uuid())
+  currency    String
+  amount      Float
+  rate        Float
+  source      String
+  timestamp   DateTime @default(now())
+  localAmount Float?
+  type        RateType @default(DISPLAY)
+  vaultId     String?
+
+  @@index([currency])
+  @@index([timestamp])
+  @@index([vaultId])
+}
+
 enum PaymentMethodType {
   CARD
   BANK_TRANSFER
@@ -363,6 +413,9 @@ enum VaultStatus {
   REFUNDED
   DISPUTED
   CANCELLED
+  PROCESSING_PAYMENT
+  AWAITING_PAYMENT
+  WITHDRAWAL_PENDING
 }
 
 enum VaultType {
@@ -450,4 +503,9 @@ enum SubmissionType {
   FILE
   LINK
   BOTH
+}
+
+enum RateType {
+  DISPLAY
+  TRANSACTION
 }

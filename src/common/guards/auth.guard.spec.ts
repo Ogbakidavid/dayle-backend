@@ -10,7 +10,8 @@ describe('AuthGuard', () => {
   beforeEach(() => {
     reflector = new Reflector();
     jwtService = new JwtService({});
-    guard = new AuthGuard(reflector, jwtService);
+    const redisService = {} as any;
+    guard = new AuthGuard(reflector, jwtService, redisService);
   });
 
   it('should be defined', () => {

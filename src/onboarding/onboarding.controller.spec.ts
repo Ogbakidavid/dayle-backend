@@ -3,6 +3,8 @@ import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DiditService } from '../common/services/didit.service';
+import { CryptoService } from '../common/services/crypto.service';
+import { PartnaService } from '../common/services/partna.service';
 describe('OnboardingController', () => {
   let controller: OnboardingController;
 
@@ -17,6 +19,14 @@ describe('OnboardingController', () => {
         },
         {
           provide: DiditService,
+          useValue: {},
+        },
+        {
+          provide: CryptoService,
+          useValue: {},
+        },
+        {
+          provide: PartnaService,
           useValue: {},
         },
       ],

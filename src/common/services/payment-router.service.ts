@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PartnaService } from './partna.service';
 import { PaycrestService } from './paycrest.service';
+import { RatesService } from '../../rates/rates.service';
 
 export enum PaymentProvider {
   PARTNA = 'partna',
@@ -14,6 +15,7 @@ export class PaymentRouter {
   constructor(
     private partna: PartnaService,
     private paycrest: PaycrestService,
+    private ratesService: RatesService,
   ) {}
 
   /**
@@ -34,7 +36,7 @@ export class PaymentRouter {
   }
 
   /**
-   * ONRAMP: Initiate collection with failover
+   * ONRAMP: Initiate collection via Partna only
    */
   async initiateOnramp(params: {
     amount: number;
@@ -44,29 +46,10 @@ export class PaymentRouter {
     customerFullName?: string;
     country?: string;
     walletAddress?: string;
+    vaultId: string;
   }) {
-    const primary = this.getPrimaryProvider(params.currency, params.country);
-    const secondary =
-      primary === PaymentProvider.PARTNA
-        ? PaymentProvider.PAYCREST
-        : PaymentProvider.PARTNA;
-
-    try {
-      this.logger.log(`Attempting onramp via primary provider: ${primary}`);
-      return await this.callOnramp(primary, params);
-    } catch (err) {
-      this.logger.warn(
-        `Primary provider ${primary} failed, attempting failover to ${secondary}. Error: ${err.message}`,
-      );
-      try {
-        return await this.callOnramp(secondary, params);
-      } catch (failoverErr) {
-        this.logger.error(
-          `Both providers failed for onramp: ${failoverErr.message}`,
-        );
-        throw failoverErr;
-      }
-    }
+    this.logger.log(`Attempting onramp via Partna`);
+    return await this.callOnramp(PaymentProvider.PARTNA, params);
   }
 
   private async callOnramp(provider: PaymentProvider, params: any) {
@@ -116,19 +99,8 @@ export class PaymentRouter {
         };
       }
     } else {
-      const res = await this.paycrest.createOrder({
-        amount: params.amount,
-        currency: params.currency,
-        customerEmail: params.customerEmail,
-        reference: params.reference,
-        type: 'onramp',
-        walletAddress: params.walletAddress,
-      });
-      return {
-        provider,
-        paymentUrl: res.paymentUrl,
-        providerRef: res.id || params.reference,
-      };
+      // Paycrest no longer supports onramp in this implementation
+      throw new Error(`Onramp not supported via provider: ${provider}`);
     }
   }
 
@@ -145,12 +117,10 @@ export class PaymentRouter {
       account_name: string;
     };
     customerEmail: string;
+    vaultId?: string;
   }) {
-    const primary = this.getPrimaryProvider(params.currency);
-    const secondary =
-      primary === PaymentProvider.PARTNA
-        ? PaymentProvider.PAYCREST
-        : PaymentProvider.PARTNA;
+    const primary = PaymentProvider.PAYCREST;
+    const secondary = PaymentProvider.PARTNA;
 
     try {
       this.logger.log(`Attempting offramp via primary provider: ${primary}`);
@@ -180,13 +150,25 @@ export class PaymentRouter {
       );
       return { provider, status: 'pending', providerRef: params.reference };
     } else {
+      let rate: number | undefined;
+      if (params.currency === 'KES' && params.vaultId) {
+        const rateResult = await this.ratesService.getTransactionRate(
+          'KES',
+          params.amount,
+          params.vaultId,
+          'withdrawal',
+        );
+        rate = rateResult.rate;
+      }
+
       const res = await this.paycrest.createOrder({
         amount: params.amount,
         currency: params.currency,
         customerEmail: params.customerEmail,
         reference: params.reference,
-        type: 'offramp',
         bankDetails: params.bankDetails,
+        vaultId: params.vaultId,
+        rate: rate,
       });
       return {
         provider,

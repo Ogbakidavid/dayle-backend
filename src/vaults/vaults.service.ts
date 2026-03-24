@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   NotFoundException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,6 +33,13 @@ import { BlockchainService } from '../common/services/blockchain.service';
 import { InvitesService } from '../invites/invites.service';
 import { MailsService } from '../notifications/mails.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RatesService } from '../rates/rates.service';
+import { PartnaService } from '../common/services/partna.service';
+import { PaycrestService } from '../common/services/paycrest.service';
+import { calculateDayleFee } from '../common/utils/fee.utils';
+
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class VaultsService {
@@ -43,7 +52,14 @@ export class VaultsService {
     private invitesService: InvitesService,
     private mailsService: MailsService,
     private notificationsService: NotificationsService,
+    @Inject(forwardRef(() => RatesService))
+    private ratesService: RatesService,
+    @Inject(forwardRef(() => PartnaService))
+    private partnaService: PartnaService,
+    private paycrestService: PaycrestService,
     private configService: ConfigService,
+    @InjectQueue('withdrawal-retry')
+    private withdrawalRetryQueue: Queue,
   ) {}
 
   async create(dto: CreateVaultDto, userId: string, role: string) {
@@ -104,15 +120,15 @@ export class VaultsService {
     // Budget is what the freelancer gets (net)
     const budgetBigInt = budgetWei;
 
-    // Total gross amount for deployment/funding (Budget / 0.97)
-    const totalAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
+    // Vault total amount is the gross amount the client funds
+    const totalAmountBigInt = budgetWei;
     const finalAmountString = ethers.formatUnits(
       totalAmountBigInt,
       dto.tokenDecimals,
     );
 
     this.logger.log(
-      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Net Budget: ${dto.totalAmount}, Gross-ed up Total: ${finalAmountString}`,
+      `Deploying vault for client ${clientAddress} and freelancer ${finalFreelancerAddress}. Total Amount: ${finalAmountString}`,
     );
     const { vaultAddress } = await this.blockchainService.deployVault(
       clientAddress,
@@ -127,7 +143,8 @@ export class VaultsService {
         title: dto.title,
         description: dto.description,
         type: dto.type as any,
-        totalAmount: budgetBigInt, // Store NET budget for freelancer
+        totalAmount: budgetBigInt, // Store gross budget
+        amount: budgetBigInt,      // Also store as amount initially
         tokenAddress: dto.tokenAddress,
         tokenSymbol: dto.tokenSymbol || null,
         tokenDecimals: dto.tokenDecimals,
@@ -143,6 +160,8 @@ export class VaultsService {
             submissionType: d.submissionType || 'FILE',
           })),
         },
+        localCurrency: dto.localCurrency || 'USD',
+        localAmount: dto.localAmount || dto.totalAmount,
       },
       include: {
         client: { select: { id: true, name: true, email: true } },
@@ -243,6 +262,15 @@ export class VaultsService {
     return result;
   }
 
+  async getStatus(id: string) {
+    const vault = await this.prisma.vault.findUnique({
+      where: { id: id },
+      select: { status: true },
+    });
+    if (!vault) throw new NotFoundException('Vault not found');
+    return vault;
+  }
+
   async getById(id: string, userId: string, role: string) {
     const prisma = this.prisma;
     const cacheKey = `vaults:detail:${id}`;
@@ -293,151 +321,322 @@ export class VaultsService {
   }
 
   async fund(id: string, dto: FundVaultDto, userId: string, role: string) {
-    const prisma = this.prisma;
-    const vault = await (prisma.vault.findUnique as any)({
+    const vault = await this.prisma.vault.findUnique({
       where: { id },
+      include: { client: true },
     });
 
-    if (!vault) {
-      throw new NotFoundException({
-        code: 'VAULT_NOT_FOUND',
-        message: 'Vault not found',
-      });
+    if (!vault) throw new NotFoundException('Vault not found');
+    if (vault.clientId !== userId)
+      throw new ForbiddenException('Not authorized');
+
+    if (vault.client.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('KYC verification must be completed before funding.');
     }
 
-    if (vault.clientId !== userId) {
-      throw new ForbiddenException({
-        code: 'UNAUTHORIZED',
-        message: 'Only client can fund',
-      });
-    }
+    // Calculate Gross Amount (Budget + 0.5% processing fee)
+    const budgetUSD = parseFloat(
+      ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6),
+    );
+    const grossUSD = budgetUSD * 1.005;
 
-    const client = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (client?.kycStatus !== KycStatus.VERIFIED) {
-      throw new ForbiddenException({
-        code: 'KYC_REQUIRED',
-        message: 'You must complete KYC verification before funding a vault',
-      });
-    }
-
-    if (
-      vault.status !== VaultStatus.DRAFT &&
-      vault.status !== VaultStatus.FUNDED
-    ) {
-      throw new BadRequestException({
-        code: 'INVALID_STATE',
-        message: 'Vault not in fundable status (must be DRAFT or FUNDED)',
-      });
-    }
-
-    // Logic for funding (ledger entry, collection voucher)
-    const providerRef = `vault_fund_${id}_${Date.now()}`;
-
-    // Calculate gross amount for funding (3% fee inclusive)
-    const budgetWei = vault.totalAmount; // This is now net budget
-    const grossAmountBigInt = (budgetWei * BigInt(10000)) / BigInt(9700);
-
-    const { user, ledgerEntry } = await this.prisma.$transaction(async (tx) => {
-      // Create ledger entry in PENDING status for the FULL GROSS AMOUNT
-      const entry = await tx.ledgerEntry.create({
-        data: {
-          userId,
-          vaultId: id,
-          type: LedgerEntryType.DEPOSIT,
-          amount: grossAmountBigInt,
-          currency: vault.tokenSymbol || 'USD',
-          status: TransactionStatus.PENDING,
-          description: `Funding for vault: ${vault.title} (Inc. 3% Fee)`,
-          providerRef,
-        },
-      });
-
-      // Get user with wallet within transaction
-      const u = await tx.user.findUnique({
-        where: { id: userId },
-        include: { wallet: true },
-      });
-
-      return { user: u, ledgerEntry: entry };
+    const result = await this.paymentRouter.initiateOnramp({
+      amount: grossUSD,
+      currency: dto.currency || 'USD',
+      reference: `vault_fund_${id}`,
+      customerEmail: vault.client.email,
+      customerFullName: vault.client.name,
+      country: vault.client.country || 'NGA',
+      vaultId: id,
     });
 
-    // Payment router integration (Onramp) - OUTSIDE transaction to avoid timeouts
-    let onrampResult;
-    try {
-      let fiatAmount = Number(
-        ethers.formatUnits(grossAmountBigInt, vault.tokenDecimals),
-      );
-      const targetCurrency = dto.currency || 'USD';
+    return result;
+  }
 
-      if (targetCurrency === 'NGN') {
-        fiatAmount = fiatAmount * 1500; // Mock exchange rate for MVP
+  async initiatePartnaFunding(vaultId: string, userId: string, dto: FundVaultDto) {
+    const vault = await this.prisma.vault.findUnique({
+      where: { id: vaultId },
+      include: { client: true },
+    });
+
+    if (!vault) throw new NotFoundException('Vault not found');
+    if (vault.clientId !== userId)
+      throw new ForbiddenException('Not authorized');
+
+    if (!vault.client.paymentAccountReady) {
+      throw new BadRequestException('Payment account setup (BVN/Phone) must be completed before funding.');
+    }
+
+    // Calculate tiered fees based on Budget
+    const budgetUSD = parseFloat(
+      ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6),
+    );
+    const grossUSD = budgetUSD * 1.005;
+    const fees = calculateDayleFee(budgetUSD);
+    
+    // Fetch live rate or use provided one
+    const currency = dto.currency || (vault.client.country === 'Kenya' ? 'KES' : 'NGN');
+    let rate: number;
+    let rateKey: string;
+
+    // For simplicity and correctness, we re-fetch/verify the rate
+    const rateResult = await this.ratesService.getTransactionRate(currency, grossUSD, vaultId, 'funding');
+    rate = rateResult.rate;
+    rateKey = rateResult.rateKey!;
+
+    // Local amount = grossUSD / (USDC/Local)
+    const localAmount = dto.amount || Math.round(grossUSD / rate);
+
+    const rampReference = crypto.randomBytes(16).toString('hex');
+    const network = currency === 'KES' ? 'mpesa' : 'naira';
+
+    const rampResponse = await this.partnaService.createRamp({
+      type: 'fiatToCrypto',
+      fromCurrency: currency,
+      fromNetwork: network,
+      toCurrency: 'USDC',
+      toNetwork: 'celo',
+      fromAmount: localAmount,
+      cryptoAddress: vault.vaultAddress || this.configService.get<string>('VAULT_FACTORY_ADDRESS'),
+      rateKey: rateKey,
+      rampReference: rampReference,
+      accountName: vault.client.name,
+      cancelPendingRampRequest: false
+    });
+
+    const rampData = rampResponse.data;
+
+    // Store ramp details in vault
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: {
+        status: VaultStatus.AWAITING_PAYMENT,
+        partnaAccountName: rampData.accountName,
+        partnaAccountNumber: rampData.accountNumber,
+        partnaBankName: rampData.bankName,
+        partnaExpiryDate: new Date(rampData.expiryDate * 1000),
+        partnaExpectedAmount: rampData.toAmount,
+        partnaFromAmount: rampData.fromAmount,
+        partnaFromCurrency: currency,
+        partnaRampReference: rampReference,
+        partnaRateKey: rateKey,
       }
-
-      onrampResult = await this.paymentRouter.initiateOnramp({
-        amount: fiatAmount,
-        currency: targetCurrency,
-        reference: providerRef,
-        customerEmail: user?.email || '',
-        customerFullName: user?.name || 'Dayle User',
-        walletAddress: vault.vaultAddress!, // Target for automated crypto delivery
-      });
-    } catch (err) {
-      this.logger.warn(
-        `Onramp failed, falling back to mock provider for development: ${err.message}`,
-      );
-
-      const fiatAmount = Number(
-        ethers.formatUnits(vault.totalAmount, vault.tokenDecimals),
-      );
-      const targetCurrency = dto.currency || 'USD';
-      const finalAmount =
-        targetCurrency === 'NGN' ? fiatAmount * 1500 : fiatAmount;
-
-      onrampResult = {
-        provider: 'mock',
-        paymentUrl: `/checkout/${id}/${dto.paymentMethod === 'bank' ? 'bank' : 'card'}?ref=${providerRef}`,
-        providerRef,
-        bankDetails:
-          dto.paymentMethod === 'bank'
-            ? {
-                accountNumber: '0123456789',
-                bankName: 'Dayle Mock Bank',
-                accountName: 'Dayle Settlement (STAGING)',
-                amount: finalAmount,
-                currency: targetCurrency,
-                reference: providerRef,
-              }
-            : null,
-      };
-    }
-
-    // Sync provider reference if it was changed by the provider
-    if (onrampResult.providerRef && onrampResult.providerRef !== providerRef) {
-      await this.prisma.ledgerEntry.update({
-        where: { id: ledgerEntry.id },
-        data: { providerRef: onrampResult.providerRef },
-      });
-      ledgerEntry.providerRef = onrampResult.providerRef;
-    }
-
-    await this.invalidateVaultCache(id, userId, vault.freelancerId);
-
-    // Notify client about the funding process
-    await this.notificationsService.createNotification(userId, {
-      type: 'payment',
-      title: 'Deposit Initiated',
-      message: `Your deposit for vault "${vault.title}" has been initiated and is awaiting confirmation.`,
-      action: `/client/vault/${id}`,
     });
 
     return {
-      vault,
-      ledgerEntry,
-      paymentUrl: onrampResult.paymentUrl,
-      bankDetails: onrampResult.bankDetails, // Return virtual account info if provided
-      provider: onrampResult.provider,
-      providerRef: ledgerEntry.providerRef,
+      bankName: rampData.bankName,
+      accountNumber: rampData.accountNumber,
+      accountName: rampData.accountName,
+      amount: rampData.fromAmount,
+      currency: currency,
+      reference: rampReference,
+      expiresAt: new Date(rampData.expiryDate * 1000).toISOString(),
+      partnaFee: rampData.feeInFromCurrency,
     };
+  }
+
+  async initiateWithdrawal(
+    vaultId: string, 
+    userId: string, 
+    bankDetails: { accountNumber: string, bankCode: string, accountName: string, bankName?: string },
+    retryCount: number = 0
+  ) {
+    const vault = await this.prisma.vault.findUnique({
+      where: { id: vaultId },
+      include: { freelancer: { include: { wallet: true } } },
+    });
+
+    if (!vault) throw new NotFoundException('Vault not found');
+    if (vault.freelancerId !== userId) throw new ForbiddenException('Not authorized');
+
+    if (vault.freelancer?.kycStatus !== KycStatus.VERIFIED || !vault.freelancer?.paymentAccountReady) {
+      throw new BadRequestException('KYC verification and payment account setup must be completed before withdrawal.');
+    }
+    
+    // Freelancer can withdraw if status is RELEASED or if we are retrying a PENDING one
+    if (vault.status !== VaultStatus.RELEASED && vault.status !== VaultStatus.WITHDRAWAL_PENDING) {
+      throw new BadRequestException('Funds have not been released yet');
+    }
+
+    // Deduct 0.5% app processing fee from freelancer's payout
+    const amountUSD = Number(vault.freelancerReceivesUSD || 0) * 0.995;
+    if (amountUSD <= 0) {
+      throw new BadRequestException('Withdrawal amount must be greater than zero.');
+    }
+
+    const currency = vault.freelancer?.country === 'Kenya' ? 'KES' : 'NGN';
+    const network = currency === 'KES' ? 'mpesa' : 'naira';
+
+    let rampReference = crypto.randomBytes(16).toString('hex');
+
+    // 1. Try Paycrest as Primary
+    try {
+      this.logger.log(`[PAYCREST RATE REQUEST] vaultId: ${vaultId}, amountUSD: ${amountUSD}`);
+      const rateResponse = await this.paycrestService.getExchangeRate(amountUSD, currency);
+      const rate = parseFloat(rateResponse.data);
+      this.logger.log(`[PAYCREST RATE RESPONSE] rate: ${rate}`);
+
+      this.logger.log(`[PAYCREST ORDER REQUEST] vaultId: ${vaultId}`);
+      const orderResponse = await this.paycrestService.createOrder({
+        amount: amountUSD,
+        currency,
+        customerEmail: vault.freelancer.email,
+        reference: rampReference,
+        vaultId,
+        rate,
+        bankDetails: {
+          account_number: bankDetails.accountNumber,
+          bank_code: bankDetails.bankCode,
+          account_name: bankDetails.accountName,
+        },
+      });
+      this.logger.log(`[PAYCREST ORDER RESPONSE] orderId: ${orderResponse.id}`);
+      this.logger.log(`[OFFRAMP PROVIDER: PAYCREST] vaultId: ${vaultId}`);
+
+      const receiveAddress = orderResponse.receiveAddress;
+      if (!receiveAddress) throw new Error('No receive address from Paycrest');
+
+      const amountWei = ethers.parseUnits(amountUSD.toString(), vault.tokenDecimals);
+      this.logger.log(`[PAYCREST WITHDRAWAL USDC SENT] vaultId: ${vaultId}, amount: ${amountUSD}, toAddress: ${receiveAddress}`);
+      
+      await this.blockchainService.transferTreasuryToken(receiveAddress, amountWei, vault.tokenAddress);
+
+      await this.prisma.vault.update({
+        where: { id: vaultId },
+        data: {
+          status: VaultStatus.WITHDRAWAL_PENDING,
+          paycrestOrderId: orderResponse.id,
+          paycrestReceiveAddress: receiveAddress,
+          paycrestValidUntil: orderResponse.validUntil ? new Date(orderResponse.validUntil) : null,
+          paycrestRate: rate,
+          paycrestOrderCreatedAt: new Date(),
+        },
+      });
+
+      return {
+        rampReference,
+        expectedLocalAmount: amountUSD * rate,
+        currency,
+        status: 'WITHDRAWAL_PENDING'
+      };
+    } catch (paycrestError) {
+      this.logger.warn(`Paycrest withdrawal failed, falling back to Partna: ${paycrestError.message}`);
+      
+      // 2. Partna Fallback
+      try {
+        this.logger.log(`[PARTNA WITHDRAWAL INITIATED] vaultId: ${vaultId}, amountUSD: ${amountUSD}`);
+        const { rate, rateKey } = await this.ratesService.getTransactionRate(currency, amountUSD, vaultId, 'withdrawal');
+
+        const rampResponse = await this.partnaService.createRamp({
+          type: 'cryptoToFiat',
+          fromCurrency: 'USDC',
+          fromNetwork: 'celo',
+          toCurrency: currency,
+          toNetwork: network,
+          fromAmount: amountUSD,
+          accountNumber: bankDetails.accountNumber,
+          bankCode: bankDetails.bankCode,
+          accountName: bankDetails.accountName,
+          rateKey: rateKey,
+          rampReference: rampReference,
+          cancelPendingRampRequest: false
+        });
+
+        this.logger.log(`[OFFRAMP PROVIDER: PARTNA FALLBACK] vaultId: ${vaultId}, rampId: ${rampResponse.data?.rampReference || rampReference}`);
+
+        const cryptoAddress = rampResponse.data?.cryptoAddress;
+        if (!cryptoAddress) throw new Error('No crypto address from Partna');
+
+        const amountWei = ethers.parseUnits(amountUSD.toString(), vault.tokenDecimals);
+        this.logger.log(`[PARTNA OFFRAMP USDC SENT] vaultId: ${vaultId}, amount: ${amountUSD}, toAddress: ${cryptoAddress}`);
+        
+        await this.blockchainService.transferTreasuryToken(cryptoAddress, amountWei, vault.tokenAddress);
+
+        await this.prisma.vault.update({
+          where: { id: vaultId },
+          data: {
+            status: VaultStatus.WITHDRAWAL_PENDING,
+            partnaRampReference: rampReference,
+            partnaRateKey: rateKey,
+            partnaBankName: bankDetails.bankName,
+            partnaAccountNumber: bankDetails.accountNumber,
+            partnaAccountName: bankDetails.accountName,
+          },
+        });
+
+        return {
+          rampReference,
+          expectedLocalAmount: rampResponse.data.toAmount,
+          currency,
+          status: 'WITHDRAWAL_PENDING'
+        };
+      } catch (partnaError) {
+        this.logger.error(`Withdrawal totally failed for vault ${vaultId}: ${partnaError.message}`);
+        
+        if (retryCount < 2) {
+          await this.scheduleWithdrawalRetry(vaultId, userId, bankDetails, retryCount + 1);
+          await this.prisma.vault.update({
+            where: { id: vaultId },
+            data: { status: VaultStatus.WITHDRAWAL_PENDING },
+          });
+
+          return {
+            status: 'WITHDRAWAL_PENDING',
+            message: 'Withdrawal failed. We will retry automatically.'
+          };
+        } else {
+          this.logger.error(`[ADMIN ALERT] Withdrawal failed for vault ${vaultId} after multiple attempts`);
+          throw new BadRequestException('Withdrawal failed after multiple attempts. Please contact support.');
+        }
+      }
+    }
+  }
+
+  public async scheduleWithdrawalRetry(
+    vaultId: string,
+    userId: string,
+    bankDetails: any,
+    retryCount: number
+  ) {
+    this.logger.log(`Scheduling withdrawal retry for vault ${vaultId}, attempt ${retryCount + 1}`);
+    await this.withdrawalRetryQueue.add(
+      'withdrawal-retry',
+      { vaultId, userId, bankDetails, retryCount },
+      { delay: 5 * 60 * 1000 } // 5 minutes
+    );
+  }
+
+  async mockPartnaDeposit(vaultId: string, amount?: number, accountName?: string) {
+    const vault = await this.prisma.vault.findUnique({
+      where: { id: vaultId },
+      include: { client: true },
+    });
+    if (!vault) throw new NotFoundException('Vault not found');
+
+    if (vault.client.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('KYC verification must be completed before mock deposit.');
+    }
+
+    const businessUsername = this.configService.get<string>('PARTNA_API_USER');
+
+    const mockAmount = amount || vault.partnaFromAmount || Number(vault.partnaExpectedAmount);
+    const mockCurrency = vault.partnaFromCurrency || (vault.client.country === 'Kenya' ? 'KES' : 'NGN');
+
+    console.log(`[PARTNA MOCK DEPOSIT REQUEST] vaultId:${vaultId} amount:${mockAmount} currency:${mockCurrency}`);
+
+    return this.partnaService.mockDepositFiat({
+      accountName: accountName || vault.partnaAccountName || vault.client.name,
+      amount: Number(mockAmount),
+      currency: mockCurrency,
+      username: businessUsername!,
+    });
+  }
+
+  /** @deprecated Legacy v2 flow */
+  async handlePartnaCallback(vaultId: string, vouchercode: string, voucherId: string) {
+    // This is legacy v2 code, keeping just in case of transition issues
+    this.logger.warn('Legacy handlePartnaCallback called - this flow should be deprecated');
+    return { success: false, message: 'Deprecated flow' };
   }
 
   async submit(
@@ -542,10 +741,23 @@ export class VaultsService {
         message: 'Not authorized',
       });
     }
+    const budgetUSD = parseFloat(
+      ethers.formatUnits(
+        vault.totalAmount || BigInt(0),
+        vault.tokenDecimals || 6,
+      ),
+    );
+    const fees = calculateDayleFee(budgetUSD);
+
     const result = await prisma.$transaction(async (tx) => {
       const updatedVault = await tx.vault.update({
         where: { id: vaultId },
-        data: { status: VaultStatus.RELEASED as any },
+        data: {
+          status: VaultStatus.RELEASED as any,
+          settlementFeeUSD: fees.settlementFeeUSD,
+          totalFeeUSD: fees.totalFeeUSD,
+          freelancerReceivesUSD: fees.freelancerReceivesUSD,
+        },
       });
 
       const ledgerEntry = await tx.ledgerEntry.create({
@@ -553,10 +765,30 @@ export class VaultsService {
           userId: vault.freelancerId!,
           vaultId: vault.id,
           type: LedgerEntryType.RELEASE,
-          amount: vault.totalAmount,
+          amount: ethers.parseUnits(
+            fees.freelancerReceivesUSD.toString(),
+            vault.tokenDecimals,
+          ),
           currency: vault.tokenSymbol || 'USD',
           status: TransactionStatus.CONFIRMED,
-          description: `Release for vault: ${vault.title}`,
+          description: `Release for vault: ${vault.title} (Net of fees)`,
+          completedAt: new Date(),
+        },
+      });
+
+      // Also create a fee ledger entry for tracking
+      await tx.ledgerEntry.create({
+        data: {
+          userId: vault.clientId,
+          vaultId: vault.id,
+          type: LedgerEntryType.FEE,
+          amount: ethers.parseUnits(
+            fees.totalFeeUSD.toString(),
+            vault.tokenDecimals,
+          ),
+          currency: vault.tokenSymbol || 'USD',
+          status: TransactionStatus.CONFIRMED,
+          description: `Platform fee for vault: ${vault.title}`,
           completedAt: new Date(),
         },
       });
@@ -567,14 +799,15 @@ export class VaultsService {
     // 2. Trigger on-chain release if a vault address exists
     if (vault.vaultAddress) {
       try {
-        await this.blockchainService.releaseVault(vault.vaultAddress);
+        await this.blockchainService.releaseVault(
+          vault.vaultAddress,
+          fees.totalFeeBasisPoints,
+        );
       } catch (error) {
         this.logger.error(
           `On-chain release failed for vault ${vaultId}`,
           error,
         );
-        // We don't throw here to keep DB in sync, but maybe we should?
-        // For now, let's just log. The listener will eventually sync it if it succeeds later.
       }
     }
 
@@ -730,6 +963,8 @@ export class VaultsService {
       tokenSymbol: vault.tokenSymbol,
       tokenDecimals: vault.tokenDecimals,
       chainId: vault.chainId,
+      localCurrency: vault.localCurrency,
+      localAmount: vault.localAmount,
       totalAmount: vault.totalAmount.toString(),
       amount: vault.amount.toString(),
       paidAmount: paidAmount.toString(),
@@ -741,6 +976,10 @@ export class VaultsService {
         paidAmount || BigInt(0),
         vault.tokenDecimals || 6,
       ),
+      settlementFeeUSD: vault.settlementFeeUSD,
+      processingFeeUSD: vault.processingFeeUSD,
+      totalFeeUSD: vault.totalFeeUSD,
+      freelancerReceivesUSD: vault.freelancerReceivesUSD,
       isFrozen: vault.isFrozen,
       frozenReason: vault.frozenReason,
       clientId: vault.clientId,

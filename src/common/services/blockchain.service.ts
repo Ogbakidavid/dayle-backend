@@ -65,18 +65,24 @@ export class BlockchainService implements OnModuleInit {
       this.usingWebSocket = true;
     } else {
       this.logger.log('Connecting to blockchain via HTTP Polling...');
-      this.provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
-        staticNetwork: true,
-      });
+
+      // Manually specify the network to avoid "failed to bootstrap network detection"
+      // or "JsonRpcProvider failed to detect network" timeouts.
+      const network = new ethers.Network('celo-sepolia', 11142220);
+
+      const request = new ethers.FetchRequest(rpcUrl);
+      request.timeout = 15000; // 15s timeout for slow RPCs
+
+      this.provider = new ethers.JsonRpcProvider(
+        request,
+        network,
+        {
+          staticNetwork: true,
+        },
+      );
       this.provider.pollingInterval = 4000;
       this.usingWebSocket = false;
     }
-
-    this.provider.on('error', (error) => {
-      this.logger.error('Blockchain Provider Error:', error);
-      // Logic to re-initialize listeners if the connection is lost
-      setTimeout(() => this.initializeProvider(), 5000);
-    });
 
     // Initialize Treasury Wallet
     const treasuryPrivateKey = this.configService.get<string>(
@@ -151,14 +157,17 @@ export class BlockchainService implements OnModuleInit {
             break; // Success!
           } catch (e) {
             attempts++;
+            const isPrismaError = e.message?.includes('prisma') || e.code?.startsWith('P');
+            const errorLabel = isPrismaError ? 'Database (Prisma)' : 'Blockchain Provider';
+
             if (attempts >= maxAttempts) {
               this.logger.error(
-                'Error initializing block polling state after retries',
+                `Error initializing ${errorLabel} state after retries`,
                 e,
               );
             } else {
               this.logger.warn(
-                `Prisma init attempt ${attempts} failed, retrying in 5s...`,
+                `${errorLabel} initialization attempt ${attempts} failed, retrying in 5s...`,
               );
               await new Promise((resolve) => setTimeout(resolve, 5000));
             }
@@ -385,10 +394,10 @@ export class BlockchainService implements OnModuleInit {
   }
 
   /**
-   * Transfer testnet tokens from the Treasury Wallet to a specific address.
+   * Transfer treasury tokens from the Treasury Wallet to a specific address.
    * Used to bridge Fiat webhooks to secure project vaults entirely on the backend.
    */
-  public async transferTestnetToken(
+  public async transferTreasuryToken(
     toAddress: string,
     amountWei: bigint,
     tokenAddress: string,
@@ -604,20 +613,25 @@ export class BlockchainService implements OnModuleInit {
   /**
    * Release funds from a vault to the freelancer and treasury
    */
-  public async releaseVault(vaultAddress: string): Promise<string> {
+  public async releaseVault(
+    vaultAddress: string,
+    feeBasisPoints: number,
+  ): Promise<string> {
     if (!this.treasuryWallet) {
       throw new Error('Treasury/Arbiter Wallet not configured.');
     }
 
     try {
-      this.logger.log(`Backend releasing vault ${vaultAddress} on-chain...`);
+      this.logger.log(
+        `Backend releasing vault ${vaultAddress} on-chain with ${feeBasisPoints} bps fee...`,
+      );
       const vaultContract = new ethers.Contract(
         vaultAddress,
         VaultImplementationABI,
         this.treasuryWallet,
       );
 
-      const tx = await vaultContract.release();
+      const tx = await vaultContract.release(feeBasisPoints);
       const receipt = await tx.wait();
 
       this.logger.log(
@@ -739,6 +753,43 @@ export class BlockchainService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Error settling vault ${vaultAddress} on-chain:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Collect a fee from the vault balance (Arbiter only)
+   */
+  public async collectFee(
+    vaultAddress: string,
+    amountWei: bigint,
+  ): Promise<string> {
+    if (!this.treasuryWallet) {
+      throw new Error('Treasury/Arbiter Wallet not configured.');
+    }
+
+    try {
+      this.logger.log(
+        `Backend collecting fee of ${amountWei} from ${vaultAddress}...`,
+      );
+      const vaultContract = new ethers.Contract(
+        vaultAddress,
+        VaultImplementationABI,
+        this.treasuryWallet,
+      );
+
+      const tx = await vaultContract.collectFee(amountWei);
+      const receipt = await tx.wait();
+
+      this.logger.log(
+        `Fee successfully collected from ${vaultAddress}: ${receipt.hash}`,
+      );
+      return receipt.hash;
+    } catch (error) {
+      this.logger.error(
+        `Error collecting fee from vault ${vaultAddress} on-chain:`,
         error,
       );
       throw error;

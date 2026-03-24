@@ -11,12 +11,14 @@ import {
   HttpStatus,
   Query,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { PaymentMethodsService } from './payment-methods.service';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { PartnaService } from '../common/services/partna.service';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { PaycrestService } from '../common/services/paycrest.service';
+import { RedisService } from '../common/redis/redis.service';
 
 @Controller('payment-methods')
 @UseGuards(AuthGuard)
@@ -27,6 +29,7 @@ export class PaymentMethodsController {
     private readonly paymentMethodsService: PaymentMethodsService,
     private readonly partna: PartnaService,
     private readonly paycrest: PaycrestService,
+    private readonly redisService: RedisService,
   ) {}
 
   @Get()
@@ -34,10 +37,6 @@ export class PaymentMethodsController {
     return this.paymentMethodsService.listByUser(req.user.id);
   }
 
-  @Post('card')
-  async addCard(@Req() req, @Body() body: any) {
-    return this.paymentMethodsService.addCard(req.user.id, body);
-  }
 
   @Post('bank')
   async addBank(@Req() req, @Body() body: any) {
@@ -56,80 +55,102 @@ export class PaymentMethodsController {
 
   @Get('banks')
   async getBanks(@Query('currency') currency?: string) {
-    const curr = currency || 'NGN';
+    const curr = (currency || 'NGN').toUpperCase();
     
-    // GHS is handled by Paycrest primarily as requested
-    if (curr === 'GHS') {
-      try {
-        return await this.paycrest.getBanks(curr);
-      } catch (e) {
-        this.logger.warn(`Paycrest GHS banks failed, trying Partna fallback: ${e.message}`);
-        return this.partna.getBanks(curr);
-      }
+    if (!['NGN', 'KES'].includes(curr)) {
+      throw new BadRequestException(`Currency ${curr} is not supported.`);
     }
 
-    // NGN and KES: Merge results from both for maximum coverage
-    const [partnaBanks, paycrestBanks] = await Promise.all([
-      this.partna.getBanks(curr).catch(() => []),
-      this.paycrest.getBanks(curr).catch(() => []),
-    ]);
+    const cacheKey = `banks:${curr}`;
+    try {
+      const cached = await this.redisService.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      this.logger.warn(`Redis cache get failed: ${e.message}`);
+    }
 
-    const merged = [...(partnaBanks || []), ...(paycrestBanks || [])];
-    
-    // Improved deduplication to handle naming variations like "OPay" vs "OPay Digital Services Limited"
-    const uniqueMap = new Map();
-    
-    // Sort by name length descending so we prefer longer, more descriptive names as keys
-    const sorted = merged.sort((a, b) => b.name.length - a.name.length);
-    
-    for (const bank of sorted) {
-      const name = bank.name.toLowerCase();
-      // Simple heuristic: if a bank already exists whose name contains this name, it's a duplicate
-      // or if this name contains an existing bank name.
-      let isDuplicate = false;
-      for (const [existingName] of uniqueMap) {
-        if (existingName.includes(name) || name.includes(existingName)) {
-          isDuplicate = true;
-          break;
+    let finalBanks: any[] = [];
+
+    if (curr === 'NGN') {
+      // Merge Partna and Paycrest for Nigeria
+      const [partnaBanks, paycrestBanks] = await Promise.all([
+        this.partna.getBanks('NGN').catch(() => []),
+        this.paycrest.getBanks('NGN').catch(() => []),
+      ]);
+
+      const bankMap = new Map();
+
+      // Partna banks
+      partnaBanks.forEach((b: any) => {
+        bankMap.set(b.code, {
+          name: b.name,
+          code: b.code,
+          provider: 'partna',
+        });
+      });
+
+      // Paycrest banks (merge/update)
+      paycrestBanks.forEach((b: any) => {
+        if (bankMap.has(b.code)) {
+          bankMap.get(b.code).provider = 'both';
+        } else {
+          bankMap.set(b.code, {
+            name: b.name || b.institutionName,
+            code: b.code || b.institutionCode,
+            provider: 'paycrest',
+          });
         }
-      }
-      
-      if (!isDuplicate) {
-        uniqueMap.set(name, bank);
-      }
-    }
-    
-    const unique = Array.from(uniqueMap.values());
-    
-    if (unique.length > 0) {
-      // Final sort alphabetically for the UI
-      return unique.sort((a, b) => a.name.localeCompare(b.name));
+      });
+
+      finalBanks = Array.from(bankMap.values());
+    } else if (curr === 'KES') {
+      // Paycrest only for Kenya (includes M-Pesa)
+      const paycrestBanks = await this.paycrest.getBanks('KES').catch(() => []);
+      finalBanks = paycrestBanks.map((b: any) => ({
+        name: b.name || b.institutionName,
+        code: b.code || b.institutionCode,
+        provider: 'paycrest',
+      }));
     }
 
-    return [];
+    finalBanks.sort((a, b) => a.name.localeCompare(b.name));
+
+    try {
+      await this.redisService.set(cacheKey, JSON.stringify(finalBanks), 24 * 60 * 60);
+    } catch (e) {
+      this.logger.warn(`Redis cache set failed: ${e.message}`);
+    }
+
+    return finalBanks;
   }
 
   @Post('resolve-bank')
   async resolveBank(
     @Body() body: { bankCode: string; accountNumber: string; currency?: string },
   ) {
-    const curr = body.currency || 'NGN';
+    const curr = (body.currency || 'NGN').toUpperCase();
+    
+    if (!['NGN', 'KES'].includes(curr)) {
+      throw new BadRequestException(`Currency ${curr} is not supported.`);
+    }
+
     try {
-      // Try Partna first for NGN/KES
-      if (curr !== 'GHS') {
-        try {
-          return await this.partna.resolveBankAccount(
-            body.bankCode,
-            body.accountNumber,
-            curr,
-          );
-        } catch (e) {
-          this.logger.warn(`Partna resolve failed: ${e.message}, trying Paycrest fallback`);
-        }
+      // 1. Try Paycrest as primary (verify-account)
+      try {
+        const paycrestRes = await this.paycrest.resolveBankAccount(
+          body.bankCode,
+          body.accountNumber,
+          curr,
+        );
+        if (paycrestRes) return paycrestRes;
+      } catch (e) {
+        this.logger.warn(`Paycrest resolve failed: ${e.message}, trying Partna fallback`);
       }
 
-      // Fallback or GHS: Try Paycrest
-      return await this.paycrest.resolveBankAccount(
+      // 2. Try Partna as fallback
+      return await this.partna.resolveBankAccount(
         body.bankCode,
         body.accountNumber,
         curr,

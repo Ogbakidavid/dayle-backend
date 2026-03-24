@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
+import { decodeJwt } from 'jose';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -25,7 +26,16 @@ export class AuthService {
     try {
       verifiedClaims = await this.privyService.verifyToken(accessToken);
     } catch (error) {
-      console.error('Token verification failed:', error);
+      console.error('[privyLogin] Token verification failed:', error.message || error);
+      
+      // Attempt to decode for debugging info (without verification)
+      try {
+        const decoded = decodeJwt(accessToken);
+        console.log(`[privyLogin] Failed token metadata - aud: ${decoded.aud}, iss: ${decoded.iss}, sub: ${decoded.sub}`);
+      } catch (e) {
+        console.warn('[privyLogin] Could not even decode token for debugging');
+      }
+      
       throw new UnauthorizedException('Invalid auth token');
     }
 
@@ -45,10 +55,9 @@ export class AuthService {
     }
 
     // Fetch full user details from Privy
-    const privyUser = await this.privyService.getUser(privyDid);
-    // REST API returns snake_case, old SDK returned camelCase — handle both
-    const linkedAccounts: any[] =
-      privyUser.linked_accounts || privyUser.linkedAccounts || [];
+    const privyUser = (await this.privyService.getUser(privyDid)) as any;
+    const linkedAccounts: any[] = privyUser.linked_accounts || [];
+
     console.log(
       '[privyLogin] Step 2: Got Privy user. linked_accounts count:',
       linkedAccounts.length,
@@ -60,41 +69,30 @@ export class AuthService {
     let email: string | null = null;
     let name = '';
 
-    // 1. Top-level email field (REST API sometimes returns this directly)
-    if (privyUser.email) {
-      const emailField = privyUser.email;
-      email =
-        typeof emailField === 'string'
-          ? emailField
-          : emailField.address || null;
-    }
+    // Search linked accounts for email
+    const emailAccount = linkedAccounts.find(
+      (acc: any) => acc.type === 'email',
+    );
+    const googleAccount = linkedAccounts.find(
+      (acc: any) => acc.type === 'google_oauth',
+    );
+    const githubAccount = linkedAccounts.find(
+      (acc: any) => acc.type === 'github_oauth',
+    );
+    const appleAccount = linkedAccounts.find(
+      (acc: any) => acc.type === 'apple_oauth',
+    );
 
-    // 2. Search linked accounts
-    if (!email) {
-      const emailAccount = linkedAccounts.find(
-        (acc: any) => acc.type === 'email',
-      );
-      const googleAccount = linkedAccounts.find(
-        (acc: any) => acc.type === 'google_oauth',
-      );
-      const githubAccount = linkedAccounts.find(
-        (acc: any) => acc.type === 'github_oauth',
-      );
-      const appleAccount = linkedAccounts.find(
-        (acc: any) => acc.type === 'apple_oauth',
-      );
-
-      if (emailAccount) {
-        email = emailAccount.address || emailAccount.email || null;
-      } else if (googleAccount) {
-        email = googleAccount.email || null;
-        name = googleAccount.name || '';
-      } else if (githubAccount) {
-        email = githubAccount.email || null;
-        name = githubAccount.name || '';
-      } else if (appleAccount) {
-        email = appleAccount.email || null;
-      }
+    if (emailAccount) {
+      email = emailAccount.address || emailAccount.email || null;
+    } else if (googleAccount) {
+      email = googleAccount.email || null;
+      name = googleAccount.name || '';
+    } else if (githubAccount) {
+      email = githubAccount.email || null;
+      name = githubAccount.name || '';
+    } else if (appleAccount) {
+      email = appleAccount.email || null;
     }
 
     if (!email) {
@@ -344,12 +342,22 @@ export class AuthService {
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: any = {
+      name: dto.name,
+      profileImage: dto.profileImage,
+    };
+
+    if (dto.country) {
+      const c = dto.country.toUpperCase();
+      data.country = 
+        c === "NIGERIA" || c === "NGA" ? "NG" : 
+        c === "KENYA" || c === "KEN" ? "KE" : 
+        c;
+    }
+
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        name: dto.name,
-        profileImage: dto.profileImage,
-      },
+      data,
     });
 
     return this.sanitizeUser(user);

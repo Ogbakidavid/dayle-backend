@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BadRequestException } from '@nestjs/common';
-import { DisputeStatus, UserRole } from '../domain/enums';
+import { DisputeStatus, UserRole, KycStatus } from '../domain/enums';
 
 describe('DisputesService Timer and Escalation', () => {
   let service: DisputesService;
@@ -39,6 +39,12 @@ describe('DisputesService Timer and Escalation', () => {
             },
             disputeEvent: {
               create: jest.fn(),
+            },
+            user: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: 'client-1',
+                kycStatus: KycStatus.VERIFIED,
+              }),
             },
             notification: {
               create: jest.fn(),

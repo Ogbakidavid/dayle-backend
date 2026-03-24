@@ -58,6 +58,14 @@ export class CreateVaultDto {
   @IsOptional()
   freelancerEmail?: string;
 
+  @IsString()
+  @IsOptional()
+  localCurrency?: string;
+
+  @IsNumber()
+  @IsOptional()
+  localAmount?: number;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(10)

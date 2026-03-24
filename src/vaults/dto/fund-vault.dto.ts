@@ -1,16 +1,22 @@
-import { IsEnum, IsObject, IsUUID, IsOptional } from 'class-validator';
+import { IsEnum, IsObject, IsOptional } from 'class-validator';
 
 export class FundVaultDto {
-  @IsEnum(['card', 'bank'])
-  paymentMethod: 'card' | 'bank';
+  @IsEnum(['bank'])
+  paymentMethod: 'bank';
 
   @IsObject()
   @IsOptional()
   paymentDetails: any;
 
-  @IsEnum(['USD', 'NGN'])
+  @IsEnum(['USD', 'NGN', 'KES'])
   @IsOptional()
-  currency?: 'USD' | 'NGN';
+  currency?: 'USD' | 'NGN' | 'KES';
+
+  @IsOptional()
+  rateKey?: string;
+
+  @IsOptional()
+  amount?: number;
 
   @IsOptional()
   idempotencyKey?: string;

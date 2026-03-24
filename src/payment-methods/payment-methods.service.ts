@@ -15,68 +15,6 @@ export class PaymentMethodsService {
     });
   }
 
-  async addCard(
-    userId: string,
-    data: {
-      brand: string;
-      last4: string;
-      expiryMonth: number;
-      expiryYear: number;
-      firstName?: string;
-      lastName?: string;
-      addressLine1?: string;
-      addressLine2?: string;
-      city?: string;
-      state?: string;
-      postalCode?: string;
-      country?: string;
-      isDefault?: boolean;
-      provider?: string;
-    },
-  ) {
-    // Basic server-side validation
-    // Enforce last4 is always exactly 4 digits — even if client sends full card number
-    const maskedLast4 = data.last4.replace(/\D/g, '').slice(-4);
-    if (maskedLast4.length !== 4) {
-      throw new Error('Invalid card data: last4 must be 4 digits');
-    }
-    if (
-      !['VISA', 'MASTERCARD', 'VERVE', 'CARD'].includes(
-        data.brand.toUpperCase(),
-      )
-    ) {
-      throw new Error('Unsupported card brand');
-    }
-
-    // If isDefault is true, unset other defaults
-    if (data.isDefault) {
-      await this.prisma.paymentMethod.updateMany({
-        where: { userId, isDefault: true },
-        data: { isDefault: false },
-      });
-    }
-
-    return this.prisma.paymentMethod.create({
-      data: {
-        userId,
-        type: PaymentMethodType.CARD,
-        brand: data.brand,
-        last4: maskedLast4, // Always store only the server-enforced masked value
-        expiryMonth: data.expiryMonth,
-        expiryYear: data.expiryYear,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        addressLine1: data.addressLine1,
-        addressLine2: data.addressLine2,
-        city: data.city,
-        state: data.state,
-        postalCode: data.postalCode,
-        country: data.country,
-        isDefault: !!data.isDefault,
-        provider: data.provider || 'PARTNA',
-      },
-    });
-  }
 
   async addBank(
     userId: string,
@@ -101,12 +39,51 @@ export class PaymentMethodsService {
         userId,
         type: PaymentMethodType.BANK_TRANSFER,
         accountName: data.accountName,
-        // Enforce masking on the server — always store only last 4 digits
-        accountNumber: `••••${data.accountNumber.replace(/\D/g, '').slice(-4)}`,
+        // For withdrawals, we need the full account number. 
+        // We store it as provided, but also keep last4 for secure display.
+        // * Disclaimer: Full account numbers are kept for manual and automated withdrawal flows only.
+        accountNumber: data.accountNumber.replace(/\D/g, ''),
+        last4: data.accountNumber.replace(/\D/g, '').slice(-4),
         bankName: data.bankName,
         bankCode: data.bankCode,
         isDefault: !!data.isDefault,
         provider: data.provider || 'PARTNA',
+      },
+    });
+  }
+
+  async addMpesa(
+    userId: string,
+    data: {
+      phoneNumber: string; // +254XXXXXXXXX
+      accountName: string;
+      isDefault?: boolean;
+    },
+  ) {
+    // Validate format: +254 followed by exactly 9 digits
+    const mpesaRegex = /^\+254\d{9}$/;
+    if (!mpesaRegex.test(data.phoneNumber)) {
+      throw new Error('Invalid M-Pesa number. Format must be +254 followed by 9 digits.');
+    }
+
+    if (data.isDefault) {
+      await this.prisma.paymentMethod.updateMany({
+        where: { userId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.paymentMethod.create({
+      data: {
+        userId,
+        type: PaymentMethodType.BANK_TRANSFER,
+        accountName: data.accountName,
+        accountNumber: data.phoneNumber,
+        last4: data.phoneNumber.slice(-4),
+        bankName: 'MPESA',
+        bankCode: 'MPESA',
+        isDefault: !!data.isDefault,
+        provider: 'PAYCREST',
       },
     });
   }

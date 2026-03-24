@@ -31,13 +31,16 @@ export class AuthGuard implements CanActivate {
       console.debug(`[AuthGuard] Route: ${route}, isPublic: ${isPublic}`);
     }
 
+    const token = this.extractTokenFromHeader(request);
+
     if (isPublic) {
       return true;
     }
 
-    const token = this.extractTokenFromHeader(request);
     if (isDev) {
-      console.debug(`[AuthGuard] Extracted token: ${token ? 'exists' : 'null'}`);
+      console.debug(
+        `[AuthGuard] Extracted token: ${token ? 'exists' : 'null'}`,
+      );
     }
 
     if (!token) {

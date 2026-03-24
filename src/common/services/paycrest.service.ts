@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -8,7 +8,9 @@ export class PaycrestService {
   private readonly apiKey: string;
   private readonly apiSecret: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+  ) {
     this.baseUrl =
       this.configService.get<string>('PAYCREST_BASE_URL') ||
       'https://api.paycrest.io/v1';
@@ -78,42 +80,38 @@ export class PaycrestService {
     currency: string;
     customerEmail: string;
     reference: string;
-    type: 'onramp' | 'offramp';
-    walletAddress?: string;
-    bankDetails?: {
+    rate?: number;
+    vaultId: string;
+    bankDetails: {
       account_number: string;
       bank_code: string;
       account_name: string;
     };
   }) {
-    const isOnramp = params.type === 'onramp';
+    if (!params.bankDetails?.account_number) {
+      throw new BadRequestException('Bank account details are required for withdrawal');
+    }
 
-    const recipient = isOnramp
-      ? {
-          institution: 'WALLET',
-          accountIdentifier: params.walletAddress,
-          accountName: params.customerEmail,
-          currency: params.currency,
-          memo: params.reference,
-        }
-      : {
-          institution: 'BANK',
-          accountIdentifier:
-            params.bankDetails?.account_number || 'MOCK_ACCOUNT',
-          accountName: params.bankDetails?.account_name || params.customerEmail,
-          currency: params.currency,
-          memo: params.reference,
-        };
+    const recipient = {
+      institution: params.bankDetails.bank_code || 'MPESA',
+      accountIdentifier: params.bankDetails.account_number,
+      accountName: params.bankDetails.account_name || params.customerEmail,
+      currency: params.currency,
+      memo: params.reference,
+    };
+
+    const rate = params.rate || 1;
 
     const res = await this.request('/sender/orders', {
       method: 'POST',
       body: JSON.stringify({
         amount: params.amount,
-        token: 'CUSD', // Always cUSD tokens for Dayle
-        network: 'celo', // Celo network
-        rate: 1, // Exchange rate (mocked for now)
+        token: 'USDC',
+        network: 'celo',
+        rate,
         recipient,
         reference: params.reference,
+        returnAddress: this.configService.get<string>('VAULT_FACTORY_ADDRESS'),
       }),
     });
 
@@ -122,6 +120,12 @@ export class PaycrestService {
       receiveAddress: res.data?.receiveAddress || res.receiveAddress,
       paymentUrl: res.data?.checkout_url || res.checkout_url || res.url,
       status: res.data?.status || res.status,
+      validUntil: res.data?.validUntil || res.validUntil,
     };
+  }
+
+  async getExchangeRate(amount: number, currency: string = 'KES') {
+    // GET /rates/USDC/{amount}/{currency}?network=celo
+    return this.request(`/rates/USDC/${amount}/${currency}?network=celo`);
   }
 }

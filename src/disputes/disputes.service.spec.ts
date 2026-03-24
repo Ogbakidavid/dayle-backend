@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BadRequestException } from '@nestjs/common';
-import { VaultStatus, UserRole } from '../domain/enums';
+import { VaultStatus, UserRole, KycStatus } from '../domain/enums';
 
 describe('DisputesService', () => {
   let service: DisputesService;
@@ -18,6 +18,9 @@ describe('DisputesService', () => {
           provide: PrismaService,
           useValue: {
             vault: {
+              findUnique: jest.fn(),
+            },
+            user: {
               findUnique: jest.fn(),
             },
           },
@@ -52,6 +55,11 @@ describe('DisputesService', () => {
       id: vaultId,
       clientId: userId,
       status: VaultStatus.RELEASED,
+    });
+
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      id: userId,
+      kycStatus: KycStatus.VERIFIED,
     });
 
     await expect(

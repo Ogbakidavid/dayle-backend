@@ -4,15 +4,20 @@ import { PaycrestService } from './paycrest.service';
 import { PaymentRouter } from './payment-router.service';
 import { BlockchainService } from './blockchain.service';
 import { DiditService } from './didit.service';
+import { CryptoService } from './crypto.service';
+import { PrismaModule } from '../../prisma/prisma.module';
 
 @Global()
 @Module({
+  imports: [PrismaModule],
+  controllers: [],
   providers: [
     PartnaService,
     PaycrestService,
     PaymentRouter,
     BlockchainService,
     DiditService,
+    CryptoService,
   ],
   exports: [
     PartnaService,
@@ -20,6 +25,7 @@ import { DiditService } from './didit.service';
     PaymentRouter,
     BlockchainService,
     DiditService,
+    CryptoService,
   ],
 })
 export class ServicesModule {}

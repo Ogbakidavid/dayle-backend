@@ -21,8 +21,10 @@ import {
   VaultStatus,
   LedgerEntryType,
   TransactionStatus,
+  KycStatus,
 } from '../domain/enums';
 import { ethers } from 'ethers';
+import { calculateDayleFee } from '../common/utils/fee.utils';
 
 @Injectable()
 export class DisputesService {
@@ -95,6 +97,12 @@ export class DisputesService {
     if (!vault) throw new NotFoundException('Vault not found');
     if (vault.clientId !== userId && vault.freelancerId !== userId) {
       throw new ForbiddenException('Not authorized');
+    }
+
+    // Tier 2 KYC Enforcement for Disputes
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('Full identity verification (Didit) is required to initiate a dispute.');
     }
 
     if (vault.status === VaultStatus.RELEASED) {
@@ -366,7 +374,18 @@ export class DisputesService {
 
         // TRIGGER ON-CHAIN RELEASE
         if (dispute.vault.vaultAddress) {
-          await this.blockchainService.releaseVault(dispute.vault.vaultAddress);
+          const vaultAmountUSD = parseFloat(
+            ethers.formatUnits(
+              dispute.vault.totalAmount || BigInt(0),
+              dispute.vault.tokenDecimals || 6,
+            ),
+          );
+          const fees = calculateDayleFee(vaultAmountUSD);
+
+          await this.blockchainService.releaseVault(
+            dispute.vault.vaultAddress,
+            fees.totalFeeBasisPoints,
+          );
         }
       } else if (outcome === DisputeResolutionOutcome.REFUND) {
         await tx.ledgerEntry.create({
@@ -403,12 +422,16 @@ export class DisputesService {
           throw new BadRequestException('Invalid split amount');
         }
 
-        // Fetch protocol fee from factory or vault if not in DB
-        // For now, we'll use a default or fetch from the contract (simplified)
-        // Ideally, protocolFeeBps is in the Vault model.
-        const protocolFeeBps = (dispute.vault as any).protocolFeeBps || 500; // Default 5% if not found
-        const treasuryAmountBigInt =
-          (vaultAmountBigInt * BigInt(protocolFeeBps)) / 10000n;
+        // Use tiered fee logic
+        const vaultAmountUSD = parseFloat(
+          ethers.formatUnits(
+            vaultAmountBigInt || BigInt(0),
+            decimals,
+          ),
+        );
+        const fees = calculateDayleFee(vaultAmountUSD);
+        
+        const treasuryAmountBigInt = (vaultAmountBigInt * BigInt(fees.totalFeeBasisPoints)) / 10000n;
         
         const availableForSplit = vaultAmountBigInt - treasuryAmountBigInt;
         
@@ -520,6 +543,12 @@ export class DisputesService {
     const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
+    // Tier 2 KYC Enforcement
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('Full identity verification (Didit) is required to propose a settlement.');
+    }
+
     const updatedDispute = await prisma.$transaction(async (tx) => {
       // 1. Check for 96-hour cap
       const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
@@ -599,6 +628,12 @@ export class DisputesService {
     const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
+    // Tier 2 KYC Enforcement
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('Full identity verification (Didit) is required to request a refund.');
+    }
+
     return await prisma.$transaction(async (tx) => {
       // 1. Check for 96-hour cap
       const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
@@ -654,6 +689,12 @@ export class DisputesService {
 
     const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    // Tier 2 KYC Enforcement
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('Full identity verification (Didit) is required to request a release.');
+    }
 
     return await prisma.$transaction(async (tx) => {
       // 1. Check for 96-hour cap
@@ -721,6 +762,12 @@ export class DisputesService {
 
     const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    // Tier 2 KYC Enforcement
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user?.kycStatus !== KycStatus.VERIFIED) {
+      throw new BadRequestException('Full identity verification (Didit) is required to accept a settlement.');
+    }
 
     const { amountToFreelancer, notes } = lastProposal.payload as any;
 

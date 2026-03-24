@@ -59,11 +59,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
-    response.status(status).json({
+    const responseBody = {
       code,
       message,
       details,
       statusCode: status,
-    });
+    };
+
+    if (exception instanceof HttpException) {
+        const exceptionResponse = exception.getResponse();
+        if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+            Object.assign(responseBody, exceptionResponse);
+        }
+    }
+
+    response.status(status).json(responseBody);
   }
 }

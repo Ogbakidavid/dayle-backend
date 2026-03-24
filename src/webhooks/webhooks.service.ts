@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PartnaService } from '../common/services/partna.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -18,12 +18,16 @@ import { InvitesService } from '../invites/invites.service';
 import { MailsService } from '../notifications/mails.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ethers } from 'ethers';
+import { VaultsService } from '../vaults/vaults.service';
+import { forwardRef, Inject } from '@nestjs/common';
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
   constructor(
+    @Inject(forwardRef(() => VaultsService))
+    private vaultsService: VaultsService,
     private prisma: PrismaService,
     private configService: ConfigService,
     private blockchainService: BlockchainService,
@@ -36,15 +40,20 @@ export class WebhooksService {
   ) {}
 
   async handlePartnaWebhook(payload: any, signature: string) {
-    this.logger.log(`Received Partna webhook: ${JSON.stringify(payload)}`);
+    this.logger.log(`[PARTNA WEBHOOK RECEIVED] ${JSON.stringify(payload)}`);
 
-    // Verify Partna signature if public key is configured
     const publicKey = this.configService.get<string>('PARTNA_PUBLIC_KEY');
-    if (publicKey && signature) {
+
+    if (publicKey) {
+      if (!signature) {
+        this.logger.error('Partna webhook missing signature — rejecting');
+        throw new UnauthorizedException('Missing webhook signature');
+      }
+
       try {
         const isValid = crypto.verify(
           'sha256',
-          Buffer.from(JSON.stringify(payload.data || payload)), // Documentation suggests payload.data or raw body
+          Buffer.from(JSON.stringify(payload.data || payload)),
           {
             key: publicKey.replace(/\\n/g, '\n'),
             padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
@@ -53,209 +62,197 @@ export class WebhooksService {
         );
 
         if (!isValid) {
-          this.logger.error('Invalid Partna webhook signature');
-          return;
+          this.logger.error('Invalid Partna webhook signature — rejecting');
+          throw new UnauthorizedException('Invalid webhook signature');
         }
       } catch (err) {
-        this.logger.error(`Error verifying Partna signature: ${err.message}`);
-        // During staging/development, we might not want to block execution if public key is misconfigured
+        if (err instanceof UnauthorizedException) throw err;
+        this.logger.error(`Signature verification error: ${err.message}`);
+        throw new UnauthorizedException('Webhook signature verification failed');
       }
+    } else {
+      this.logger.warn('PARTNA_PUBLIC_KEY not configured — skipping signature verification');
     }
 
-    const { reference, status, amount, type, voucherCode } =
-      payload.data || payload;
+    const data = payload.data || payload;
+    const { reference, rampReference, status, type } = data;
+    const ref = rampReference || reference;
 
-    // Map Partna status to our internal TransactionStatus
-    let internalStatus = TransactionStatus.PENDING;
-    if (status === 'success') internalStatus = TransactionStatus.CONFIRMED;
-    if (status === 'failed') internalStatus = TransactionStatus.FAILED;
-
-    const ledgerEntry = await this.prisma.ledgerEntry.findFirst({
-      where: {
-        OR: [
-          { providerRef: reference },
-          { description: { contains: reference } },
-          { id: reference }, // In case reference is our internal ID
-        ],
-      },
-    });
-
-    if (!ledgerEntry) {
-      this.logger.warn(
-        `No ledger entry found for Partna reference: ${reference}`,
-      );
+    if (!ref) {
+      this.logger.warn('Partna webhook missing reference');
       return;
     }
 
-    // Determine if we should trigger crypto delivery
-    const isSuccess = status === 'success';
-    const isCollection = type === 'collection' || type === 'voucher';
+    // Find vault by partnaRampReference or legacy partnaVoucherId
+    const vault = await this.prisma.vault.findFirst({
+      where: {
+        OR: [{ partnaRampReference: ref }, { partnaVoucherId: ref }],
+      },
+      include: { client: true, freelancer: true },
+    });
 
-    if (isSuccess && isCollection) {
-      const vault = await this.prisma.vault.findUnique({
-        where: { id: ledgerEntry.vaultId! },
-        include: { client: { include: { wallet: true } } },
-      });
+    const isSuccess = status === 'success' || status === 'completed';
+    const isFailed = status === 'failed' || status === 'cancelled';
 
-      if (
-        vault &&
-        (vault.status === VaultStatus.DRAFT ||
-          vault.status === VaultStatus.FUNDED)
-      ) {
-        this.logger.log(
-          `Triggering Settlement for Vault ${vault.id}`,
-        );
-
-        let depositSuccessful = false;
-        let blockchainTxHash: string | null = null;
-
-        if (vault.client?.wallet?.address) {
-          try {
-            if (vault.vaultAddress && voucherCode) {
-              try {
-                this.logger.log(
-                  `Automatically redeeming voucher ${voucherCode} for Vault ${vault.vaultAddress}`,
-                );
-                await this.partna.redeemAndWithdraw({
-                  voucherCode,
-                  walletAddress: vault.vaultAddress,
-                  network: 'celo',
-                  token: vault.tokenSymbol || 'cUSD',
-                });
-                depositSuccessful = true;
-              } catch (e) {
-                this.logger.warn(
-                  `Partna voucher redemption failed: ${e.message}. Falling back to manual blockchain deposit.`,
-                );
-              }
-            }
-
-            if (!depositSuccessful && vault.vaultAddress) {
-              this.logger.log(
-                `Manual deposit fallback for Vault ${vault.vaultAddress}.`,
-              );
-              blockchainTxHash = await this.blockchainService.depositToVault(
-                vault.vaultAddress,
-                BigInt(ledgerEntry.amount),
-                vault.tokenAddress,
-              );
-              depositSuccessful = true;
-            } else if (!vault.vaultAddress) {
-              this.logger.log(
-                `Vault ${vault.id} has no address yet (Guest Freelancer). Marking as Funded but without on-chain tx.`,
-              );
-              depositSuccessful = true;
-            }
-          } catch (error) {
-            this.logger.error(
-              `Critical error during blockchain deposit for Vault ${vault.id}: ${error.message}`,
-            );
-            // We intentionally do NOT update the status to CONFIRMED or FUNDED here
-            // This leaves the Ledger Entry in PENDING so the user can see it didn't complete.
-          }
-        }
-
-        if (depositSuccessful) {
-          // Both DB updates should be inside a transaction for consistency
+    if (vault) {
+      if (isSuccess) {
+        this.logger.log(`Partna ${type} SUCCESS for Vault ${vault.id}`);
+        
+        if (type === 'fiatToCrypto' || !type) {
+          // ONRAMP SUCCESS
+          this.logger.log(`[PARTNA ONRAMP WEBHOOK RECEIVED] ref: ${ref} status: ${status}`);
+          
           await this.prisma.$transaction(async (tx) => {
-            await tx.ledgerEntry.update({
-              where: { id: ledgerEntry.id },
-              data: {
-                status: TransactionStatus.CONFIRMED,
-                providerRef: blockchainTxHash || ledgerEntry.providerRef,
-              },
-            });
-
-            // Create negative FEE entry
-            const netAmount = vault.totalAmount; // This is the budget stored in vault
-            const grossAmount = BigInt(ledgerEntry.amount);
-            const feeAmount = grossAmount - netAmount;
-
-            await tx.ledgerEntry.create({
-              data: {
-                userId: vault.clientId,
-                vaultId: vault.id,
-                type: LedgerEntryType.FEE,
-                amount: -feeAmount, // Negative amount for deduction
-                currency: vault.tokenSymbol || 'USD',
-                status: TransactionStatus.CONFIRMED,
-                description: 'Service fee deducted',
-                completedAt: new Date(),
-              },
-            });
-
             await tx.vault.update({
               where: { id: vault.id },
-              data: {
-                status: VaultStatus.FUNDED,
-                isFrozen: false,
-                frozenReason: null,
-              } as any,
+              data: { status: VaultStatus.FUNDED },
+            });
+
+            await tx.ledgerEntry.updateMany({
+              where: { vaultId: vault.id, status: TransactionStatus.PENDING },
+              data: { status: TransactionStatus.CONFIRMED },
             });
           });
 
-          // Invalidate cache so UI reflects change
-          const keys = [
-            `vaults:detail:${vault.id}`,
-            `vaults:list:${UserRole.CLIENT}:${vault.clientId}`,
-          ];
-          if (vault.freelancerId) {
-            keys.push(
-              `vaults:list:${UserRole.FREELANCER}:${vault.freelancerId}`,
-            );
+          // Trigger on-chain fee collection for the 0.5% deposit processing fee
+          if (vault.vaultAddress) {
+            try {
+              const depositProcessingFee = (vault.totalAmount! * BigInt(5)) / BigInt(1000);
+              this.logger.log(`Sweeping 0.5% deposit fee (${depositProcessingFee}) from vault ${vault.vaultAddress}`);
+              await this.blockchainService.collectFee(vault.vaultAddress, depositProcessingFee);
+            } catch (error) {
+              this.logger.error(`Failed to collect deposit fee for vault ${vault.id} on-chain`, error);
+            }
           }
-          await Promise.all(keys.map((key) => this.redisService.del(key)));
 
-          this.logger.log(
-            `Vault ${vault.id} successfully funded and ledger confirmed.`,
-          );
-
-          // Publish real-time event
-          await this.redisService.publish('vault.funded', {
-            vaultId: vault.id,
-            clientId: vault.clientId,
-            freelancerId: vault.freelancerId,
-            status: VaultStatus.FUNDED,
-          });
-
-          await this.handlePostFundingActions(vault.id);
-
-          // Notify client about confirmed deposit
+          await this.invalidateVaultCache(vault.id, vault.clientId, vault.freelancerId);
+          
           await this.notificationsService.createNotification(vault.clientId, {
             type: 'payment',
-            title: 'Deposit Confirmed',
-            message: `Your deposit for vault "${vault.title}" has been confirmed and the vault is now funded.`,
+            title: 'Vault Funded',
+            message: `Payment received. Your vault "${vault.title}" is now active.`,
             action: `/client/vault/${vault.id}`,
           });
 
-          // If there's a freelancer, notify them too
           if (vault.freelancerId) {
+            const amountFormatted = ethers.formatUnits(vault.totalAmount || BigInt(0), vault.tokenDecimals || 6);
             await this.notificationsService.createNotification(vault.freelancerId, {
               type: 'vault',
-              title: 'Vault Funded',
-              message: `The client has funded the vault "${vault.title}". You can now begin work.`,
+              title: 'Funds Locked',
+              message: `Funds locked — $${amountFormatted} secured for this project: "${vault.title}".`,
               action: `/freelancer/vault/${vault.id}`,
             });
+          }
+          
+          await this.handlePostFundingActions(vault.id);
+        } else if (type === 'cryptoToFiat') {
+          // OFFRAMP SUCCESS
+          this.logger.log(`[PARTNA OFFRAMP WEBHOOK RECEIVED] ${JSON.stringify(payload)}`);
+          
+          await this.prisma.vault.update({
+            where: { id: vault.id },
+            data: { status: VaultStatus.RELEASED },
+          });
+
+          if (vault.freelancerId) {
+            const amountFormatted = data.toAmount || data.amount;
+            const bankName = vault.partnaBankName || 'bank';
+            
+            await this.notificationsService.createNotification(vault.freelancerId, {
+              type: 'payment',
+              title: 'Withdrawal Successful',
+              message: `Payment sent. ₦${amountFormatted} is on its way to your ${bankName} account.`,
+              action: `/freelancer/vault/${vault.id}`,
+            });
+          }
+
+          // Notify client as well
+          await this.notificationsService.createNotification(vault.clientId, {
+            type: 'vault',
+            title: 'Payment Released',
+            message: `Payment has been released to the freelancer.`,
+            action: `/client/vault/${vault.id}`,
+          });
+        }
+      } else if (isFailed) {
+        this.logger.warn(`Partna ${type} FAILED for Vault ${vault.id}`);
+        if (type === 'fiatToCrypto' || !type) {
+          await this.prisma.vault.update({
+            where: { id: vault.id },
+            data: { status: VaultStatus.DRAFT },
+          });
+
+          await this.notificationsService.createNotification(vault.clientId, {
+            type: 'payment',
+            title: 'Payment Failed',
+            message: `Your payment for vault "${vault.title}" failed. Please try again.`,
+            action: `/client/vault/${vault.id}`,
+          });
+        } else if (type === 'cryptoToFiat') {
+          // OFFRAMP FAILED
+          const errorMsg = data.message || 'Provider reported failure';
+          this.logger.error(`[ADMIN ALERT] Withdrawal failed for vault ${vault.id} — ${errorMsg}`);
+          
+          const bankDetails = {
+            accountNumber: vault.partnaAccountNumber!,
+            bankCode: (await this.prisma.paymentMethod.findFirst({ where: { userId: vault.freelancerId!, accountNumber: vault.partnaAccountNumber! } }))?.bankCode || '',
+            accountName: vault.partnaAccountName!,
+            bankName: vault.partnaBankName!,
+          };
+
+          // Notify freelancer
+          await this.notificationsService.createNotification(vault.freelancerId!, {
+            type: 'payment',
+            title: 'Withdrawal Processing',
+            message: `Your withdrawal is being processed. We'll notify you when it's complete.`,
+            action: `/freelancer/vault/${vault.id}`,
+          });
+          
+          try {
+             if (bankDetails.bankCode) {
+                await this.prisma.vault.update({
+                    where: { id: vault.id },
+                    data: { status: VaultStatus.WITHDRAWAL_PENDING }
+                });
+                await this.vaultsService.scheduleWithdrawalRetry(vault.id, vault.freelancerId!, bankDetails, 1);
+             }
+          } catch (e) {
+             this.logger.error(`Failed to schedule retry after webhook failure: ${e.message}`);
           }
         }
       }
     } else {
-      // For non-deposit webhooks or failures, just update the ledger status normally
-      await this.prisma.ledgerEntry.update({
-        where: { id: ledgerEntry.id },
-        data: { status: internalStatus },
+      // Logic for non-vault ledger entries (e.g. general withdrawals)
+      const ledgerEntry = await this.prisma.ledgerEntry.findFirst({
+        where: {
+          OR: [{ providerRef: ref }, { id: ref }],
+        },
       });
 
-      // If it's a successful payout (withdrawal), notify the user
-      if (isSuccess && type === 'payout') {
-        await this.notificationsService.createNotification(ledgerEntry.userId, {
-          type: 'payment',
-          title: 'Withdrawal Completed',
-          message: `Your withdrawal has been successfully processed and funds have been sent to your bank account.`,
-          action: '/settings',
+      if (ledgerEntry) {
+        const internalStatus = isSuccess ? TransactionStatus.CONFIRMED : (isFailed ? TransactionStatus.FAILED : TransactionStatus.PENDING);
+        
+        await this.prisma.ledgerEntry.update({
+          where: { id: ledgerEntry.id },
+          data: { status: internalStatus },
         });
+
+        if (isSuccess && type === 'payout') {
+          await this.notificationsService.createNotification(ledgerEntry.userId, {
+            type: 'payment',
+            title: 'Withdrawal Completed',
+            message: `Your withdrawal has been processed successfully.`,
+            action: '/settings',
+          });
+        }
       }
     }
+  }
+
+  private async invalidateVaultCache(vaultId: string, clientId: string, freelancerId?: string | null) {
+    const keys = [`vaults:detail:${vaultId}`, `vaults:list:CLIENT:${clientId}`];
+    if (freelancerId) keys.push(`vaults:list:FREELANCER:${freelancerId}`);
+    await Promise.all(keys.map(k => this.redisService.del(k)));
   }
 
   async handlePaycrestWebhook(payload: any, signature: string) {
@@ -263,18 +260,62 @@ export class WebhooksService {
 
     // Paycrest uses HMAC-SHA256 signature
     const secret = this.configService.get<string>('PAYCREST_API_SECRET');
-    if (secret && signature) {
+    if (secret) {
+      if (!signature) {
+        this.logger.error('Paycrest webhook missing signature — rejecting');
+        throw new UnauthorizedException('Missing Paycrest signature');
+      }
+
       const hmac = crypto.createHmac('sha256', secret);
       const digest = hmac.update(JSON.stringify(payload)).digest('hex');
+      
       if (digest !== signature) {
-        this.logger.error('Invalid Paycrest signature');
-        return;
+        this.logger.error('Invalid Paycrest signature — rejecting');
+        throw new UnauthorizedException('Invalid Paycrest signature');
       }
+    } else {
+      this.logger.warn('PAYCREST_API_SECRET not configured — skipping signature verification');
     }
 
     const { event, orderId, status, data } = payload;
-    const isSuccess = event === 'order.settled' || status === 'settled';
+    this.logger.log(`[PAYCREST WEBHOOK RECEIVED] orderId: ${orderId}, event: ${event}, status: ${status}`);
 
+    const isSuccess = event === 'order.settled' || status === 'settled' || event === 'payment_order.validated';
+
+    // 1. Check if it's an offramp (withdrawal)
+    const offrampVault = await this.prisma.vault.findUnique({
+      where: { paycrestOrderId: orderId },
+      include: { freelancer: true, client: true },
+    });
+
+    if (offrampVault) {
+      if (isSuccess && offrampVault.status === VaultStatus.WITHDRAWAL_PENDING) {
+        this.logger.log(`Paycrest OFFRAMP SUCCESS for Vault ${offrampVault.id}`);
+        await this.prisma.vault.update({
+          where: { id: offrampVault.id },
+          data: { status: VaultStatus.RELEASED },
+        });
+
+        // Notify freelancer
+        await this.notificationsService.createNotification(offrampVault.freelancerId!, {
+          type: 'payment',
+          title: 'Withdrawal Successful',
+          message: 'Payment sent. KES arriving in your M-Pesa shortly.',
+          action: `/freelancer/vault/${offrampVault.id}`,
+        });
+
+        // Notify client
+        await this.notificationsService.createNotification(offrampVault.clientId, {
+          type: 'payment',
+          title: 'Payment Released',
+          message: 'Payment has been released to the freelancer.',
+          action: `/client/vault/${offrampVault.id}`,
+        });
+      }
+      return;
+    }
+
+    // 2. Otherwise, check if it's an onramp (funding)
     const ledgerEntry = await this.prisma.ledgerEntry.findFirst({
       where: {
         OR: [{ providerRef: orderId }, { id: orderId }],
@@ -282,7 +323,7 @@ export class WebhooksService {
     });
 
     if (!ledgerEntry) {
-      this.logger.warn(`No ledger entry found for Paycrest order: ${orderId}`);
+      this.logger.warn(`No ledger entry or vault found for Paycrest order: ${orderId}`);
       return;
     }
 

@@ -3,6 +3,7 @@ import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsGateway } from './notifications.gateway';
+import { ConfigService } from '@nestjs/config';
 
 describe('NotificationsController', () => {
   let controller: NotificationsController;
@@ -19,6 +20,10 @@ describe('NotificationsController', () => {
         {
           provide: NotificationsGateway,
           useValue: {},
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
         },
       ],
     }).compile();

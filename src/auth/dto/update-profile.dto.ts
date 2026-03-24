@@ -16,4 +16,8 @@ export class UpdateProfileDto {
   @IsUrl()
   @IsOptional()
   profileImage?: string;
+
+  @IsString()
+  @IsOptional()
+  country?: string;
 }

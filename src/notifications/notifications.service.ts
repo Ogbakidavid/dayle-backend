@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsGateway } from './notifications.gateway';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
   constructor(
     private prisma: PrismaService,
     private gateway: NotificationsGateway,
+    private configService: ConfigService,
   ) {}
 
   // Temporary in-memory storage for verification codes (not persisted in DB yet for simplicity)
@@ -284,5 +287,35 @@ export class NotificationsService {
     this.gateway.sendToUser(userId, 'notification', notification);
 
     return notification;
+  }
+
+  async notifyAdminTelegram(message: string) {
+    const chatId = this.configService.get<string>('ADMIN_TELEGRAM_CHAT_ID');
+    const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
+
+    if (!chatId) {
+      this.logger.warn('ADMIN_TELEGRAM_CHAT_ID not set. Admin notification skipped.');
+      this.logger.log(`[Admin Notification]: ${message}`);
+      return;
+    }
+
+    if (!botToken) {
+      this.logger.warn('TELEGRAM_BOT_TOKEN not set. Cannot send Telegram message to admin.');
+      this.logger.log(`[Admin Notification (Blocked by missing token)]: ${message}`);
+      return;
+    }
+
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `🚨 [ADMIN ALERT] 🚨\n\n${message}`,
+        }),
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send Telegram admin notification: ${error.message}`);
+    }
   }
 }

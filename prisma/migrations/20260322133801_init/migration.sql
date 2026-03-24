@@ -1,17 +1,14 @@
 -- CreateEnum
-CREATE TYPE "VaultStatus" AS ENUM ('DRAFT', 'AWAITING_FUNDING', 'INVITED', 'FUNDED_UNASSIGNED', 'FUNDED_ASSIGNED', 'ACTIVE', 'IN_REVIEW', 'CLOSED', 'CANCELLED', 'PAUSED', 'DISPUTED');
+CREATE TYPE "PaymentMethodType" AS ENUM ('CARD', 'BANK_TRANSFER');
 
 -- CreateEnum
-CREATE TYPE "MilestoneStatus" AS ENUM ('PENDING', 'SUBMITTED', 'AWAITING_APPROVAL', 'VERIFIED', 'REVISION_REQUESTED', 'REJECTED', 'DISPUTED');
+CREATE TYPE "VaultStatus" AS ENUM ('DRAFT', 'FUNDED', 'RELEASED', 'REFUNDED', 'DISPUTED', 'CANCELLED', 'PROCESSING_PAYMENT', 'AWAITING_PAYMENT', 'WITHDRAWAL_PENDING');
 
 -- CreateEnum
-CREATE TYPE "VerificationResult" AS ENUM ('PASS', 'FAIL', 'FLAGGED', 'HUMAN_REVIEW');
+CREATE TYPE "VaultType" AS ENUM ('FIXED_PRICE', 'DEVELOPMENT', 'DESIGN', 'CONTENT_AI');
 
 -- CreateEnum
-CREATE TYPE "MilestoneReviewOutcome" AS ENUM ('APPROVE', 'REQUEST_CHANGES', 'REJECT');
-
--- CreateEnum
-CREATE TYPE "DisputeStatus" AS ENUM ('OPEN', 'UNDER_REVIEW', 'NEEDS_INFO', 'RESOLVED', 'REJECTED');
+CREATE TYPE "DisputeStatus" AS ENUM ('OPEN', 'UNDER_REVIEW', 'NEEDS_INFO', 'RESOLVED', 'REJECTED', 'MUTUAL_RESOLUTION');
 
 -- CreateEnum
 CREATE TYPE "TransactionStatus" AS ENUM ('PENDING', 'CONFIRMED', 'FAILED');
@@ -32,10 +29,19 @@ CREATE TYPE "InviteStatus" AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED'
 CREATE TYPE "LedgerEntryType" AS ENUM ('DEPOSIT', 'LOCK', 'RELEASE', 'REFUND', 'WITHDRAW', 'FEE');
 
 -- CreateEnum
-CREATE TYPE "DisputeType" AS ENUM ('VERIFICATION_ERROR', 'REQUIREMENT_MISMATCH', 'SCOPE_CHANGE', 'BAD_FAITH', 'FRAUD', 'PROCESS_BREACH', 'SECURITY');
+CREATE TYPE "DisputeType" AS ENUM ('INTEGRITY_VIOLATION', 'SCOPE_DISPUTE', 'COOPERATION_ISSUE', 'TECHNICAL_ERROR');
 
 -- CreateEnum
 CREATE TYPE "EvidenceType" AS ENUM ('MESSAGE', 'MESSAGE_SENT', 'REQUIREMENT_ITEM', 'SUBMISSION_DELTA', 'REVIEW_DECISION', 'DISPUTE_EVENT');
+
+-- CreateEnum
+CREATE TYPE "RefundRequestStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "SubmissionType" AS ENUM ('FILE', 'LINK', 'BOTH');
+
+-- CreateEnum
+CREATE TYPE "RateType" AS ENUM ('DISPLAY', 'TRANSACTION');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -51,8 +57,55 @@ CREATE TABLE "User" (
     "twoFactorSecret" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "bvn" TEXT,
+    "country" TEXT,
+    "phoneNumber" TEXT,
+    "paymentAccountReady" BOOLEAN NOT NULL DEFAULT false,
+    "partnaAccountRef" TEXT,
+    "identityAttempts" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PaymentMethod" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" "PaymentMethodType" NOT NULL,
+    "provider" TEXT DEFAULT 'PARTNA',
+    "brand" TEXT,
+    "last4" TEXT,
+    "expiryMonth" INTEGER,
+    "expiryYear" INTEGER,
+    "accountName" TEXT,
+    "accountNumber" TEXT,
+    "bankName" TEXT,
+    "bankCode" TEXT,
+    "isDefault" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "addressLine1" TEXT,
+    "addressLine2" TEXT,
+    "city" TEXT,
+    "country" TEXT,
+    "firstName" TEXT,
+    "lastName" TEXT,
+    "postalCode" TEXT,
+    "state" TEXT,
+
+    CONSTRAINT "PaymentMethod_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Admin" (
+    "id" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
+    "permissions" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Admin_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -75,12 +128,14 @@ CREATE TABLE "KycData" (
     "userId" TEXT NOT NULL,
     "fullName" TEXT NOT NULL,
     "dateOfBirth" TIMESTAMP(3) NOT NULL,
-    "address" TEXT NOT NULL,
-    "idDocumentUrl" TEXT NOT NULL,
+    "address" TEXT,
+    "idDocumentUrl" TEXT,
     "proofOfAddressUrl" TEXT,
     "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "reviewedAt" TIMESTAMP(3),
     "rejectionReason" TEXT,
+    "idNumber" TEXT,
+    "idType" TEXT,
 
     CONSTRAINT "KycData_pkey" PRIMARY KEY ("id")
 );
@@ -104,42 +159,53 @@ CREATE TABLE "Vault" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT,
-    "type" TEXT NOT NULL,
     "status" "VaultStatus" NOT NULL DEFAULT 'DRAFT',
-    "totalAmount" DOUBLE PRECISION NOT NULL,
+    "totalAmount" BIGINT NOT NULL,
     "clientId" TEXT NOT NULL,
     "freelancerId" TEXT,
-    "escrowRef" TEXT,
     "isFrozen" BOOLEAN NOT NULL DEFAULT false,
     "frozenReason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "amount" BIGINT NOT NULL DEFAULT 0,
+    "chainId" INTEGER NOT NULL,
+    "tokenAddress" TEXT NOT NULL,
+    "tokenDecimals" INTEGER NOT NULL,
+    "tokenSymbol" TEXT,
+    "vaultAddress" TEXT,
+    "type" "VaultType" NOT NULL DEFAULT 'FIXED_PRICE',
+    "partnaVoucherCreatedAt" TIMESTAMP(3),
+    "partnaVoucherId" TEXT,
+    "partnaAccountName" TEXT,
+    "partnaAccountNumber" TEXT,
+    "partnaBankName" TEXT,
+    "partnaExpectedAmount" DOUBLE PRECISION,
+    "partnaExpiryDate" TIMESTAMP(3),
+    "partnaRampReference" TEXT,
+    "partnaRateKey" TEXT,
+    "unitAmount" INTEGER,
+    "settlementFeeUSD" DECIMAL(65,30),
+    "processingFeeUSD" DECIMAL(65,30),
+    "totalFeeUSD" DECIMAL(65,30),
+    "freelancerReceivesUSD" DECIMAL(65,30),
 
     CONSTRAINT "Vault_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "Milestone" (
+CREATE TABLE "Deliverable" (
     "id" TEXT NOT NULL,
     "vaultId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
-    "status" "MilestoneStatus" NOT NULL DEFAULT 'PENDING',
-    "amount" DOUBLE PRECISION NOT NULL,
-    "dueDate" TIMESTAMP(3),
-    "deliverableTypeId" TEXT,
-    "deliverableMode" TEXT,
-    "auditEnabled" BOOLEAN NOT NULL DEFAULT true,
-    "requirementItemsJson" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "description" TEXT,
+    "submissionType" "SubmissionType" NOT NULL DEFAULT 'FILE',
 
-    CONSTRAINT "Milestone_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Deliverable_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Submission" (
     "id" TEXT NOT NULL,
-    "milestoneId" TEXT NOT NULL,
     "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "submittedBy" TEXT NOT NULL,
     "notes" TEXT,
@@ -150,48 +216,16 @@ CREATE TABLE "Submission" (
     "fileHash" TEXT,
     "fileSize" INTEGER,
     "fileMime" TEXT,
+    "deliverableStatus" JSONB,
+    "vaultId" TEXT NOT NULL,
 
     CONSTRAINT "Submission_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "Verification" (
-    "id" TEXT NOT NULL,
-    "milestoneId" TEXT NOT NULL,
-    "result" "VerificationResult" NOT NULL,
-    "verifiedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "verifiedBy" TEXT NOT NULL DEFAULT 'AI',
-    "confidence" DOUBLE PRECISION,
-    "checksCompleted" INTEGER,
-    "checksTotal" INTEGER,
-    "riskLevel" TEXT,
-    "flags" JSONB,
-    "checks" JSONB,
-    "ruleResultsJson" JSONB,
-    "notes" TEXT,
-
-    CONSTRAINT "Verification_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "MilestoneReview" (
-    "id" TEXT NOT NULL,
-    "milestoneId" TEXT NOT NULL,
-    "reviewerId" TEXT NOT NULL,
-    "outcome" "MilestoneReviewOutcome" NOT NULL,
-    "reasonCodes" JSONB,
-    "notes" TEXT,
-    "reviewedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "MilestoneReview_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Dispute" (
     "id" TEXT NOT NULL,
     "vaultId" TEXT NOT NULL,
-    "milestoneId" TEXT NOT NULL,
-    "requirementRef" TEXT,
     "disputeType" "DisputeType" NOT NULL,
     "reasonCode" TEXT NOT NULL,
     "openedByUserId" TEXT NOT NULL,
@@ -202,6 +236,9 @@ CREATE TABLE "Dispute" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "resolvedAt" TIMESTAMP(3),
+    "deliverableId" TEXT,
+    "deliverableTitle" TEXT,
+    "resolutionWindowExpiresAt" TIMESTAMP(3),
 
     CONSTRAINT "Dispute_pkey" PRIMARY KEY ("id")
 );
@@ -223,7 +260,6 @@ CREATE TABLE "DisputeEvent" (
 CREATE TABLE "Evidence" (
     "id" TEXT NOT NULL,
     "vaultId" TEXT NOT NULL,
-    "milestoneId" TEXT,
     "disputeId" TEXT,
     "type" "EvidenceType" NOT NULL,
     "payload" JSONB NOT NULL,
@@ -239,9 +275,8 @@ CREATE TABLE "LedgerEntry" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "vaultId" TEXT,
-    "milestoneId" TEXT,
     "type" "LedgerEntryType" NOT NULL,
-    "amount" DOUBLE PRECISION NOT NULL,
+    "amount" BIGINT NOT NULL,
     "currency" TEXT NOT NULL DEFAULT 'USD',
     "status" "TransactionStatus" NOT NULL DEFAULT 'PENDING',
     "description" TEXT NOT NULL,
@@ -314,6 +349,45 @@ CREATE TABLE "NotificationPreferences" (
     CONSTRAINT "NotificationPreferences_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "RefundRequest" (
+    "id" TEXT NOT NULL,
+    "vaultId" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "amount" BIGINT NOT NULL,
+    "payoutMethod" TEXT NOT NULL,
+    "payoutDetails" JSONB NOT NULL,
+    "status" "RefundRequestStatus" NOT NULL DEFAULT 'PENDING',
+    "adminNotes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RefundRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ExchangeRateLog" (
+    "id" TEXT NOT NULL,
+    "currency" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "rate" DOUBLE PRECISION NOT NULL,
+    "source" TEXT NOT NULL,
+    "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "localAmount" DOUBLE PRECISION,
+    "type" "RateType" NOT NULL DEFAULT 'DISPLAY',
+    "vaultId" TEXT,
+
+    CONSTRAINT "ExchangeRateLog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "_SubmissionDeliverables" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL,
+
+    CONSTRAINT "_SubmissionDeliverables_AB_pkey" PRIMARY KEY ("A","B")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -325,6 +399,18 @@ CREATE INDEX "User_role_idx" ON "User"("role");
 
 -- CreateIndex
 CREATE INDEX "User_kycStatus_idx" ON "User"("kycStatus");
+
+-- CreateIndex
+CREATE INDEX "User_country_idx" ON "User"("country");
+
+-- CreateIndex
+CREATE INDEX "PaymentMethod_userId_idx" ON "PaymentMethod"("userId");
+
+-- CreateIndex
+CREATE INDEX "PaymentMethod_type_idx" ON "PaymentMethod"("type");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Admin_email_key" ON "Admin"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Wallet_userId_key" ON "Wallet"("userId");
@@ -354,7 +440,13 @@ CREATE INDEX "Session_accessToken_idx" ON "Session"("accessToken");
 CREATE INDEX "Session_refreshToken_idx" ON "Session"("refreshToken");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Vault_escrowRef_key" ON "Vault"("escrowRef");
+CREATE UNIQUE INDEX "Vault_vaultAddress_key" ON "Vault"("vaultAddress");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Vault_partnaVoucherId_key" ON "Vault"("partnaVoucherId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Vault_partnaRampReference_key" ON "Vault"("partnaRampReference");
 
 -- CreateIndex
 CREATE INDEX "Vault_clientId_idx" ON "Vault"("clientId");
@@ -369,40 +461,19 @@ CREATE INDEX "Vault_status_idx" ON "Vault"("status");
 CREATE INDEX "Vault_createdAt_idx" ON "Vault"("createdAt");
 
 -- CreateIndex
-CREATE INDEX "Milestone_vaultId_idx" ON "Milestone"("vaultId");
+CREATE INDEX "Vault_partnaVoucherId_idx" ON "Vault"("partnaVoucherId");
 
 -- CreateIndex
-CREATE INDEX "Milestone_status_idx" ON "Milestone"("status");
+CREATE INDEX "Vault_partnaRampReference_idx" ON "Vault"("partnaRampReference");
 
 -- CreateIndex
-CREATE INDEX "Milestone_dueDate_idx" ON "Milestone"("dueDate");
+CREATE INDEX "Deliverable_vaultId_idx" ON "Deliverable"("vaultId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Submission_milestoneId_key" ON "Submission"("milestoneId");
-
--- CreateIndex
-CREATE INDEX "Submission_milestoneId_idx" ON "Submission"("milestoneId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Verification_milestoneId_key" ON "Verification"("milestoneId");
-
--- CreateIndex
-CREATE INDEX "Verification_milestoneId_idx" ON "Verification"("milestoneId");
-
--- CreateIndex
-CREATE INDEX "Verification_result_idx" ON "Verification"("result");
-
--- CreateIndex
-CREATE UNIQUE INDEX "MilestoneReview_milestoneId_key" ON "MilestoneReview"("milestoneId");
-
--- CreateIndex
-CREATE INDEX "MilestoneReview_milestoneId_idx" ON "MilestoneReview"("milestoneId");
+CREATE INDEX "Submission_vaultId_idx" ON "Submission"("vaultId");
 
 -- CreateIndex
 CREATE INDEX "Dispute_vaultId_idx" ON "Dispute"("vaultId");
-
--- CreateIndex
-CREATE INDEX "Dispute_milestoneId_idx" ON "Dispute"("milestoneId");
 
 -- CreateIndex
 CREATE INDEX "Dispute_status_idx" ON "Dispute"("status");
@@ -420,9 +491,6 @@ CREATE INDEX "DisputeEvent_createdAt_idx" ON "DisputeEvent"("createdAt");
 CREATE INDEX "Evidence_vaultId_idx" ON "Evidence"("vaultId");
 
 -- CreateIndex
-CREATE INDEX "Evidence_milestoneId_idx" ON "Evidence"("milestoneId");
-
--- CreateIndex
 CREATE INDEX "Evidence_disputeId_idx" ON "Evidence"("disputeId");
 
 -- CreateIndex
@@ -433,9 +501,6 @@ CREATE INDEX "LedgerEntry_userId_idx" ON "LedgerEntry"("userId");
 
 -- CreateIndex
 CREATE INDEX "LedgerEntry_vaultId_idx" ON "LedgerEntry"("vaultId");
-
--- CreateIndex
-CREATE INDEX "LedgerEntry_milestoneId_idx" ON "LedgerEntry"("milestoneId");
 
 -- CreateIndex
 CREATE INDEX "LedgerEntry_type_idx" ON "LedgerEntry"("type");
@@ -485,6 +550,30 @@ CREATE INDEX "Notification_timestamp_idx" ON "Notification"("timestamp");
 -- CreateIndex
 CREATE UNIQUE INDEX "NotificationPreferences_userId_key" ON "NotificationPreferences"("userId");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "RefundRequest_vaultId_key" ON "RefundRequest"("vaultId");
+
+-- CreateIndex
+CREATE INDEX "RefundRequest_clientId_idx" ON "RefundRequest"("clientId");
+
+-- CreateIndex
+CREATE INDEX "RefundRequest_status_idx" ON "RefundRequest"("status");
+
+-- CreateIndex
+CREATE INDEX "ExchangeRateLog_currency_idx" ON "ExchangeRateLog"("currency");
+
+-- CreateIndex
+CREATE INDEX "ExchangeRateLog_timestamp_idx" ON "ExchangeRateLog"("timestamp");
+
+-- CreateIndex
+CREATE INDEX "ExchangeRateLog_vaultId_idx" ON "ExchangeRateLog"("vaultId");
+
+-- CreateIndex
+CREATE INDEX "_SubmissionDeliverables_B_index" ON "_SubmissionDeliverables"("B");
+
+-- AddForeignKey
+ALTER TABLE "PaymentMethod" ADD CONSTRAINT "PaymentMethod_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- AddForeignKey
 ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -501,37 +590,25 @@ ALTER TABLE "Vault" ADD CONSTRAINT "Vault_clientId_fkey" FOREIGN KEY ("clientId"
 ALTER TABLE "Vault" ADD CONSTRAINT "Vault_freelancerId_fkey" FOREIGN KEY ("freelancerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Milestone" ADD CONSTRAINT "Milestone_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Deliverable" ADD CONSTRAINT "Deliverable_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Submission" ADD CONSTRAINT "Submission_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Verification" ADD CONSTRAINT "Verification_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MilestoneReview" ADD CONSTRAINT "MilestoneReview_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Submission" ADD CONSTRAINT "Submission_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_openedByUserId_fkey" FOREIGN KEY ("openedByUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Dispute" ADD CONSTRAINT "Dispute_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "DisputeEvent" ADD CONSTRAINT "DisputeEvent_disputeId_fkey" FOREIGN KEY ("disputeId") REFERENCES "Dispute"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Evidence" ADD CONSTRAINT "Evidence_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Evidence" ADD CONSTRAINT "Evidence_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Evidence" ADD CONSTRAINT "Evidence_disputeId_fkey" FOREIGN KEY ("disputeId") REFERENCES "Dispute"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Evidence" ADD CONSTRAINT "Evidence_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -540,16 +617,25 @@ ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_userId_fkey" FOREIGN KEY (
 ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_milestoneId_fkey" FOREIGN KEY ("milestoneId") REFERENCES "Milestone"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Invite" ADD CONSTRAINT "Invite_invitedBy_fkey" FOREIGN KEY ("invitedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Invite" ADD CONSTRAINT "Invite_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Invite" ADD CONSTRAINT "Invite_invitedBy_fkey" FOREIGN KEY ("invitedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "NotificationPreferences" ADD CONSTRAINT "NotificationPreferences_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RefundRequest" ADD CONSTRAINT "RefundRequest_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RefundRequest" ADD CONSTRAINT "RefundRequest_vaultId_fkey" FOREIGN KEY ("vaultId") REFERENCES "Vault"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_SubmissionDeliverables" ADD CONSTRAINT "_SubmissionDeliverables_A_fkey" FOREIGN KEY ("A") REFERENCES "Deliverable"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_SubmissionDeliverables" ADD CONSTRAINT "_SubmissionDeliverables_B_fkey" FOREIGN KEY ("B") REFERENCES "Submission"("id") ON DELETE CASCADE ON UPDATE CASCADE;

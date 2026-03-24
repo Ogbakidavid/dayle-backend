@@ -8,6 +8,7 @@ import {
   UseGuards,
   Req,
   Delete,
+  Post,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
@@ -94,5 +95,25 @@ export class AdminController {
   @Delete('sessions/:userId')
   async revokeUserSessions(@Req() req: any, @Param('userId') userId: string) {
     return this.adminService.revokeUserSessions(req.user.id, userId);
+  }
+
+  @Get('withdrawals')
+  async getWithdrawals(@Req() req: any) {
+    return this.adminService.getWithdrawals(req.user);
+  }
+
+  @Get('revenue')
+  async getRevenue(@Req() req: any) {
+    return this.adminService.getRevenue(req.user);
+  }
+
+  @Post('withdrawals/:id/retry')
+  async retryWithdrawal(@Req() req: any, @Param('id') id: string) {
+    return this.adminService.retryWithdrawal(req.user.id, id);
+  }
+
+  @Patch('withdrawals/:id/fail')
+  async markWithdrawalFailed(@Req() req: any, @Param('id') id: string) {
+    return this.adminService.markWithdrawalFailed(req.user.id, id);
   }
 }

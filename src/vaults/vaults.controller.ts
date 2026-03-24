@@ -1,4 +1,6 @@
-import { Controller, Post, Get, Param, Body, Patch } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, Patch, Query, Res, ForbiddenException } from '@nestjs/common';
+import { Public } from '../common/decorators/public.decorator';
+import { Response } from 'express';
 import { VaultsService } from './vaults.service';
 import { CreateVaultDto } from './dto/create-vault.dto';
 import { ReleaseVaultDto } from './dto/release-vault.dto';
@@ -7,6 +9,7 @@ import { FundVaultDto } from './dto/fund-vault.dto';
 import { UpdateVaultStatusDto } from './dto/update-vault-status.dto';
 import { SubmitVaultDto } from './dto/submit-vault.dto';
 import { RequestRefundDto } from './dto/request-refund.dto';
+import { WithdrawVaultDto } from './dto/withdraw-vault.dto';
 import { UpdateFreelancerDto } from './dto/update-freelancer.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { User } from '../common/decorators/user.decorator';
@@ -15,6 +18,7 @@ import { UserRole } from '../domain/enums';
 @Controller('vaults')
 export class VaultsController {
   constructor(private vaultsService: VaultsService) {}
+
 
   @Post()
   @Roles(UserRole.CLIENT)
@@ -43,6 +47,12 @@ export class VaultsController {
     return this.vaultsService.getById(id, userId, role);
   }
 
+  @Get(':id/status')
+  async getStatus(@Param('id') id: string) {
+    const vault = await this.vaultsService.getStatus(id);
+    return { status: vault.status };
+  }
+
   @Post(':id/submit')
   @Roles(UserRole.FREELANCER)
   async submit(
@@ -62,7 +72,44 @@ export class VaultsController {
     @User('id') userId: string,
     @User('role') role: UserRole,
   ) {
+    if (dto.currency === 'NGN' || dto.currency === 'KES') {
+      return this.vaultsService.initiatePartnaFunding(id, userId, dto);
+    }
     return this.vaultsService.fund(id, dto, userId, role);
+  }
+
+  @Post(':id/mock-deposit')
+  @Roles(UserRole.CLIENT)
+  async mockDeposit(
+    @Param('id') id: string,
+    @Body() body: { amount?: number; accountName?: string },
+  ) {
+    if (process.env.NODE_ENV !== 'development') {
+      throw new ForbiddenException('Mock deposit is only available in development environment');
+    }
+    return this.vaultsService.mockPartnaDeposit(id, body.amount, body.accountName);
+  }
+
+  @Post(':id/withdraw')
+  @Roles(UserRole.FREELANCER)
+  async withdraw(
+    @Param('id') id: string,
+    @Body() bankDetails: { accountNumber: string, bankCode: string, accountName: string },
+    @User('id') userId: string,
+  ) {
+    return this.vaultsService.initiateWithdrawal(id, userId, bankDetails);
+  }
+
+  @Get(':id/payment-callback')
+  async handlePartnaCallback(
+    @Param('id') id: string,
+    @Query('vouchercode') vouchercode: string,
+    @Query('voucherId') voucherId: string,
+    @Res() res: any,
+  ) {
+    await this.vaultsService.handlePartnaCallback(id, vouchercode, voucherId);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://dayle.netlify.app';
+    return res.redirect(`${frontendUrl}/client/vault/${id}?status=processing`);
   }
 
   @Post(':id/release')

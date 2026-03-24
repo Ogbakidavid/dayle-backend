@@ -70,6 +70,9 @@ describe('DisputesService Adjudication', () => {
 
     service = module.get<DisputesService>(DisputesService);
     prisma = module.get<PrismaService>(PrismaService);
+    
+    // Reset mocks
+    jest.clearAllMocks();
   });
 
   const mockDispute = {
@@ -155,19 +158,19 @@ describe('DisputesService Adjudication', () => {
         amount: 400000000000000000000n,
       }),
     });
-    // Refund 550 to client (1000 - 400 - 50 fee)
+    // Refund 555 to client (1000 - 400 - 45 fee)
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 550000000000000000000n,
+        amount: 555000000000000000000n,
       }),
     });
-    // Fee 50 to treasury
+    // Fee 45 to treasury
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         type: LedgerEntryType.FEE,
-        amount: 50000000000000000000n,
+        amount: 45000000000000000000n,
       }),
     });
   });

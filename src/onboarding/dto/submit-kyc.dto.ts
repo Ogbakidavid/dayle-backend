@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsNotEmpty,
   IsOptional,
+  IsIn,
 } from 'class-validator';
 
 export class SubmitKycDto {
@@ -18,6 +19,9 @@ export class SubmitKycDto {
 
   @IsString()
   @IsOptional()
+  @IsIn(['NG', 'KE', 'NGA', 'KEN'], {
+    message: "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
+  })
   country?: string;
 
   @IsString()
