@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -53,32 +54,63 @@ import { RatesModule } from './rates/rates.module';
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        throttlers: [
-          // Default global limit: 1000 requests per minute
-          { name: 'default', ttl: 60000, limit: 1000 },
-          // Payment endpoints: max 100 requests per minute
-          { name: 'payment', ttl: 60000, limit: 100 },
-          // Auth endpoints: max 100 requests per minute
-          { name: 'auth', ttl: 60000, limit: 100 },
-          // Rate endpoints: max 2000 requests per minute
-          { name: 'rates', ttl: 60000, limit: 2000 },
-        ],
-        storage: new ThrottlerStorageRedisService(
-          configService.get<string>('REDIS_URL'),
-        ),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const throttlerOptions: any = {
+          throttlers: [
+            // Default global limit: 1000 requests per minute
+            { name: 'default', ttl: 60000, limit: 1000 },
+            // Payment endpoints: max 100 requests per minute
+            { name: 'payment', ttl: 60000, limit: 100 },
+            // Auth endpoints: max 100 requests per minute
+            { name: 'auth', ttl: 60000, limit: 100 },
+            // Rate endpoints: max 2000 requests per minute
+            { name: 'rates', ttl: 60000, limit: 2000 },
+          ],
+        };
+
+        if (configService.get('ENABLE_REDIS') !== 'false') {
+          throttlerOptions.storage = new ThrottlerStorageRedisService(
+            configService.get<string>('REDIS_URL'),
+          );
+        }
+
+        return throttlerOptions;
+      },
     }),
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          url: configService.get<string>('REDIS_URL'),
-          maxRetriesPerRequest: null,
-        },
-      }),
-    }),
+    ...(process.env.ENABLE_BULL !== 'false'
+      ? [
+          BullModule.forRootAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: (configService: ConfigService) => {
+              const redisUrl = configService.get<string>('REDIS_URL');
+              return {
+                connection: {
+                  url: redisUrl,
+                  maxRetriesPerRequest: null,
+                },
+                // Global worker settings to reduce Redis command volume (~90% savings)
+                defaultJobOptions: {
+                  removeOnComplete: 100,
+                  removeOnFail: 50,
+                  attempts: 3,
+                  backoff: {
+                    type: 'exponential',
+                    delay: 5000,
+                  },
+                },
+                // Optimized worker defaults
+                workerOptions: {
+                  concurrency: 1,
+                  stalledInterval: 60000,
+                  lockDuration: 60000,
+                  drainDelay: 30000,
+                },
+              };
+            },
+          }),
+        ]
+      : []),
     ServicesModule,
     AuthModule,
     OnboardingModule,

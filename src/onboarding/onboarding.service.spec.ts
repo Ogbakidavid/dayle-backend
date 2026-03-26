@@ -76,7 +76,7 @@ describe('OnboardingService - submitIdentity', () => {
 
   it("should successfully submit Nigerian identity (BVN)", async () => {
     const userId = 'fc7b5ce8-1200-45c9-9a17-9853bcfd9bcf';
-    const accountName = 'fc7b5ce8120045c99a179853bcfd9bcf';
+    const accountName = 'dyfc7b5ce8120045c99a179853bcfd9bcf';
     const dto = { country: 'NG', bvn: '12345678901' };
     
     (prisma.user.findUnique as jest.Mock).mockResolvedValue({ 
@@ -125,7 +125,7 @@ describe('OnboardingService - submitIdentity', () => {
 
   it("should successfully submit Kenyan identity (Phone)", async () => {
     const userId = 'user-2-uuid';
-    const accountName = 'user2uuid';
+    const accountName = 'dyuser2uuid';
     const dto = { country: 'KE', phoneNumber: '+254712345678' };
     
     (prisma.user.findUnique as jest.Mock).mockResolvedValue({ 

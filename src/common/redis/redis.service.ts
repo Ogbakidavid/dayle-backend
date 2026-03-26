@@ -15,6 +15,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {}
 
   onModuleInit() {
+    if (this.configService.get('ENABLE_REDIS') === 'false') {
+      this.logger.warn('Redis is disabled via ENABLE_REDIS flag');
+      return;
+    }
+
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (!redisUrl) {
       this.logger.error('REDIS_URL is not defined in environment variables');
@@ -36,11 +41,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
-    this.redisClient.disconnect();
+    if (this.redisClient) {
+      this.redisClient.disconnect();
+    }
   }
 
-  getClient(): Redis {
-    return this.redisClient;
+  getClient(): Redis | null {
+    return this.redisClient || null;
   }
 
   async publish(channel: string, message: any): Promise<number> {
@@ -56,23 +63,29 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async get(key: string): Promise<string | null> {
-    if (this.redisClient.status !== 'ready') return null;
+    if (!this.redisClient || this.redisClient.status !== 'ready') return null;
     try {
       return await this.redisClient.get(key);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes('max requests limit exceeded')) {
+        this.logger.error('Upstash Redis limit exceeded. Please upgrade or use local Redis.');
+      }
       this.logger.warn(`Redis GET failed for key: ${key}`);
       return null;
     }
   }
 
   async set(key: string, value: string, ttl?: number): Promise<'OK' | null> {
-    if (this.redisClient.status !== 'ready') return null;
+    if (!this.redisClient || this.redisClient.status !== 'ready') return null;
     try {
       if (ttl) {
         return await this.redisClient.set(key, value, 'EX', ttl);
       }
       return await this.redisClient.set(key, value);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes('max requests limit exceeded')) {
+        this.logger.error('Upstash Redis limit exceeded. Please upgrade or use local Redis.');
+      }
       this.logger.warn(`Redis SET failed for key: ${key}`);
       return null;
     }

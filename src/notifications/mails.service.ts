@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -11,7 +11,7 @@ export class MailsService {
 
   constructor(
     private configService: ConfigService,
-    @InjectQueue('mail') private mailQueue: Queue,
+    @Optional() @InjectQueue('mail') private mailQueue: Queue,
   ) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     if (apiKey) {
@@ -30,6 +30,13 @@ export class MailsService {
     amount: number,
     inviteToken: string,
   ) {
+    if (!this.mailQueue) {
+      this.logger.warn(
+        'Mail queue is not available. Skipping invite email queuing.',
+      );
+      return;
+    }
+
     this.logger.log(`Queueing invite email to ${to}...`);
     await this.mailQueue.add(
       'sendInvite',

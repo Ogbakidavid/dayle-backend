@@ -36,6 +36,12 @@ export class NotificationsGateway
 
   onModuleInit() {
     const redis = this.redisService.getClient();
+    if (!redis) {
+      this.logger.warn(
+        'Redis client not available. Real-time notifications via Pub/Sub will be disabled.',
+      );
+      return;
+    }
 
     // ioredis recommends a separate client for SUBSCRIBE.
     const subClient = redis.duplicate();

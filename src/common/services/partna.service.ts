@@ -148,6 +148,17 @@ export class PartnaService {
   }
 
   /**
+   * GET /v4/account/account-details
+   * Fetches all accounts (can be used to find an existing ID by email)
+   */
+  async getAccountDetails() {
+    this.logger.log(`[PARTNA GET ACCOUNT DETAILS REQUEST]`);
+    const res = await this.request('/account/account-details');
+    // The response structure: { data: { accounts: [...] } }
+    return res.data?.accounts || [];
+  }
+
+  /**
    * POST /v4/kyc
    * Initiate KYC (BVN for Nigeria or Phone for Kenya) in Partna v4
    */

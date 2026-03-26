@@ -11,9 +11,22 @@ import { NotificationsGateway } from './notifications.gateway';
 
 @Module({
   imports: [
-    BullModule.registerQueue({
-      name: 'mail',
-    }),
+    ...(process.env.ENABLE_BULL !== 'false'
+      ? [
+          BullModule.registerQueue({
+            name: 'mail',
+            defaultJobOptions: {
+              removeOnComplete: 100,
+              removeOnFail: 50,
+              attempts: 3,
+              backoff: {
+                type: 'exponential',
+                delay: 5000,
+              },
+            },
+          }),
+        ]
+      : []),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -27,8 +40,8 @@ import { NotificationsGateway } from './notifications.gateway';
   providers: [
     NotificationsService,
     MailsService,
-    MailProcessor,
     NotificationsGateway,
+    ...(process.env.ENABLE_BULL !== 'false' ? [MailProcessor] : []),
   ],
   exports: [MailsService, NotificationsGateway, NotificationsService],
 })

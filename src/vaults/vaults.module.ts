@@ -20,12 +20,30 @@ import { AuthModule } from '../auth/auth.module';
     InvitesModule,
     NotificationsModule,
     ServicesModule,
-    BullModule.registerQueue({
-      name: 'withdrawal-retry',
-    }),
+    ...(process.env.ENABLE_BULL !== 'false'
+      ? [
+          BullModule.registerQueue({
+            name: 'withdrawal-retry',
+            defaultJobOptions: {
+              removeOnComplete: 100,
+              removeOnFail: 50,
+              attempts: 3,
+              backoff: {
+                type: 'exponential',
+                delay: 5000,
+              },
+            },
+          }),
+        ]
+      : []),
   ],
   controllers: [VaultsController],
-  providers: [VaultsService, VaultsExpiryJob, WithdrawalRetryProcessor, PaycrestMonitoringJob],
+  providers: [
+    VaultsService,
+    VaultsExpiryJob,
+    PaycrestMonitoringJob,
+    ...(process.env.ENABLE_BULL !== 'false' ? [WithdrawalRetryProcessor] : []),
+  ],
   exports: [VaultsService],
 })
 export class VaultsModule {}

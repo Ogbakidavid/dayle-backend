@@ -6,6 +6,7 @@ import {
   Logger,
   Inject,
   forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,7 +59,7 @@ export class VaultsService {
     private partnaService: PartnaService,
     private paycrestService: PaycrestService,
     private configService: ConfigService,
-    @InjectQueue('withdrawal-retry')
+    @Optional() @InjectQueue('withdrawal-retry')
     private withdrawalRetryQueue: Queue,
   ) {}
 
@@ -598,6 +599,10 @@ export class VaultsService {
     bankDetails: any,
     retryCount: number
   ) {
+    if (!this.withdrawalRetryQueue) {
+      this.logger.warn(`[WITHDRAWAL RETRY BYPASS] ENABLE_BULL is false. Retry for vault ${vaultId} skipped.`);
+      return;
+    }
     this.logger.log(`Scheduling withdrawal retry for vault ${vaultId}, attempt ${retryCount + 1}`);
     await this.withdrawalRetryQueue.add(
       'withdrawal-retry',
