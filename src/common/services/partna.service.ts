@@ -120,8 +120,22 @@ export class PartnaService {
    * Simulates fiat deposit in staging
    */
   async mockDepositFiat(body: { accountName: string; amount: number; currency: string; username: string }) {
-    this.logger.log(`[PARTNA MOCK DEPOSIT REQUEST] ${JSON.stringify(body)}`);
+    this.logger.log(`[PARTNA MOCK DEPOSIT FIAT REQUEST] ${JSON.stringify(body)}`);
     const res = await this.request('/mock/deposit-fiat', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    this.logger.log(`[PARTNA MOCK DEPOSIT FIAT RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
+   * POST /v4/mock/deposit
+   * Simulates a general (crypto/fiat) deposit in staging
+   */
+  async mockDeposit(body: any) {
+    this.logger.log(`[PARTNA MOCK DEPOSIT REQUEST] ${JSON.stringify(body)}`);
+    const res = await this.request('/mock/deposit', {
       method: 'POST',
       body: JSON.stringify(body),
     });

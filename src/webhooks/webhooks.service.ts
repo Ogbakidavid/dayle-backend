@@ -101,8 +101,7 @@ export class WebhooksService {
         if (type === 'fiatToCrypto' || !type) {
           // ONRAMP SUCCESS
           this.logger.log(`[PARTNA ONRAMP WEBHOOK RECEIVED] ref: ${ref} status: ${status}`);
-          
-          await this.prisma.$transaction(async (tx) => {
+               await this.prisma.$transaction(async (tx) => {
             await tx.vault.update({
               where: { id: vault.id },
               data: { status: VaultStatus.FUNDED },
@@ -113,6 +112,38 @@ export class WebhooksService {
               data: { status: TransactionStatus.CONFIRMED },
             });
           });
+
+          // LAND FUNDS IN SMART CONTRACT
+          // For Partna (Fiat-to-Crypto), we must bridge the received fiat by depositing 
+          // from the Treasury/Relayer wallet into the Vault contract.
+          if (vault.vaultAddress) {
+             try {
+                this.logger.log(`Automatically depositing ${vault.totalAmount} into Vault Contract ${vault.vaultAddress} following Partna settlement`);
+                
+                // Get the deposit ledger entry to attribute the txHash
+                const depositEntry = await this.prisma.ledgerEntry.findFirst({
+                   where: { vaultId: vault.id, type: LedgerEntryType.DEPOSIT, status: TransactionStatus.CONFIRMED },
+                   orderBy: { createdAt: 'desc' }
+                });
+
+                const blockchainTxHash = await this.blockchainService.depositToVault(
+                  vault.vaultAddress,
+                  vault.totalAmount!,
+                  vault.tokenAddress!,
+                );
+
+                if (depositEntry) {
+                   await this.prisma.ledgerEntry.update({
+                      where: { id: depositEntry.id },
+                      data: { providerRef: blockchainTxHash }
+                   });
+                }
+                
+                this.logger.log(`Partna-to-Blockchain bridge successful: ${blockchainTxHash}`);
+             } catch (error) {
+                this.logger.error(`Critical: Failed to land funds on-chain for Partna Vault ${vault.id}: ${error.message}`);
+             }
+          }
 
           // Trigger on-chain fee collection for the 0.5% deposit processing fee
           if (vault.vaultAddress) {

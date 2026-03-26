@@ -626,17 +626,50 @@ export class VaultsService {
 
     const mockAmount = amount || vault.partnaFromAmount || Number(vault.partnaExpectedAmount);
     const mockCurrency = vault.partnaFromCurrency || (vault.client.country === 'Kenya' ? 'KES' : 'NGN');
+    const finalAccountName = accountName || vault.partnaAccountName || vault.client.partnaCustomerId || vault.client.name;
 
     console.log(`[PARTNA MOCK DEPOSIT REQUEST] vaultId:${vaultId} amount:${mockAmount} currency:${mockCurrency}`);
 
-    return this.partnaService.mockDepositFiat({
-      accountName: accountName || vault.partnaAccountName || vault.client.name,
+    // For NGN, we can use the specialized fiat endpoint or the general one. 
+    // We'll use the general one (mockDeposit) to support all fields.
+    const isFiat = ['NGN', 'KES'].includes(mockCurrency);
+    
+    if (mockCurrency === 'NGN') {
+       // Optional: Still support the specific fiat endpoint if preferred for NGN
+       return this.partnaService.mockDepositFiat({
+         accountName: finalAccountName,
+         amount: Number(mockAmount),
+         currency: mockCurrency,
+         username: businessUsername!,
+       });
+    }
+
+    // General mock for Crypto or KES
+    const networkMap: Record<string, string> = {
+      'USDC': 'celo',
+      'USDT': 'celo',
+      'ETH': 'celo',
+      'BTC': 'bitcoin',
+      'KES': 'kenyanshilling',
+      'NGN': 'naira',
+    };
+
+    const mockPayload = {
+      accountName: finalAccountName,
       amount: Number(mockAmount),
       currency: mockCurrency,
       username: businessUsername!,
-    });
-  }
+      network: networkMap[mockCurrency] || 'celo',
+      confirmations: 10,
+      txHash: `mock_tx_${Math.random().toString(36).substring(7)}`,
+      transactionID: `mock_id_${Date.now()}`,
+      reference: vault.partnaRampReference || `mock_ref_${Date.now()}`,
+      fiatEvent: isFiat ? 'transfer.success' : undefined,
+    };
 
+    return this.partnaService.mockDeposit(mockPayload);
+  }
+鼓
   /** @deprecated Legacy v2 flow */
   async handlePartnaCallback(vaultId: string, vouchercode: string, voucherId: string) {
     // This is legacy v2 code, keeping just in case of transition issues

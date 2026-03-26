@@ -19,7 +19,8 @@ model User {
   twoFactorSecret         String?
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
-  bvn                     String?                  @unique
+  // TODO (Staging): Re-enable @unique for production. Currently removed to allow multiple roles (Client/Freelance) to test with the same staging BVN.
+  bvn                     String?
   country                 String?
   phoneNumber             String?
   paymentAccountReady     Boolean                  @default(false)
