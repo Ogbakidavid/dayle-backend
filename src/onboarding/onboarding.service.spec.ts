@@ -39,9 +39,12 @@ describe('OnboardingService - submitIdentity', () => {
         {
           provide: PartnaService,
           useValue: {
-            initiateBvnKyc: jest.fn().mockResolvedValue({ success: true }),
-            createCustomer: jest.fn().mockResolvedValue({ success: true, id: 'cust-1' }),
-            createAccount: jest.fn().mockResolvedValue({ accountRef: 'REF-123' }),
+            createAccount: jest.fn().mockResolvedValue({ success: true }),
+            initiateKyc: jest.fn().mockResolvedValue({ success: true }),
+            createVirtualAccount: jest.fn().mockResolvedValue({ 
+              success: true, 
+              data: [{ accountNumber: 'REF-123' }] 
+            }),
             confirmPhone: jest.fn().mockResolvedValue({ success: true }),
           },
         },
@@ -72,10 +75,28 @@ describe('OnboardingService - submitIdentity', () => {
   });
 
   it("should successfully submit Nigerian identity (BVN)", async () => {
-    const userId = 'user-1';
+    const userId = 'fc7b5ce8-1200-45c9-9a17-9853bcfd9bcf';
+    const accountName = 'fc7b5ce8120045c99a179853bcfd9bcf';
     const dto = { country: 'NG', bvn: '12345678901' };
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: userId, role: UserRole.CLIENT, kycStatus: KycStatus.NONE, name: 'Test User', email: 'test@example.com', country: 'NG' });
-    (prisma.user.update as jest.Mock).mockResolvedValue({ id: userId, role: UserRole.CLIENT, kycStatus: KycStatus.NONE, country: 'NG', bvn: 'encrypted_value', name: 'Test User', email: 'test@example.com' });
+    
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ 
+      id: userId, 
+      role: UserRole.CLIENT, 
+      kycStatus: KycStatus.NONE, 
+      name: 'Test User', 
+      email: 'test@example.com', 
+      country: 'NG' 
+    });
+    
+    (prisma.user.update as jest.Mock).mockResolvedValue({ 
+      id: userId, 
+      role: UserRole.CLIENT, 
+      kycStatus: KycStatus.NONE, 
+      country: 'NG', 
+      bvn: 'encrypted_value', 
+      name: 'Test User', 
+      email: 'test@example.com' 
+    });
 
     const result = await service.submitIdentity(userId, dto);
 
@@ -84,24 +105,47 @@ describe('OnboardingService - submitIdentity', () => {
       where: { id: userId },
       data: { country: 'NG' },
     });
+    
+    const partnaService = (service as any).partnaService;
+    expect(partnaService.initiateKyc).toHaveBeenCalledWith({
+        accountName,
+        bvn: '12345678901'
+    });
+
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: userId },
       data: {
         bvn: 'encrypted_value',
         paymentAccountReady: true,
-        partnaCustomerId: 'cust-1',
+        partnaCustomerId: accountName,
         partnaAccountRef: 'REF-123',
       },
     });
-    // Sanitize check (masking)
-    expect(result.bvn).toBe('*******alue'); // 'decrypted_value'.slice(-4) is 'alue'
   });
 
   it("should successfully submit Kenyan identity (Phone)", async () => {
-    const userId = 'user-2';
+    const userId = 'user-2-uuid';
+    const accountName = 'user2uuid';
     const dto = { country: 'KE', phoneNumber: '+254712345678' };
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: userId, role: UserRole.FREELANCER, kycStatus: KycStatus.NONE, name: 'Test User', email: 'test@example.com', country: 'KE' });
-    (prisma.user.update as jest.Mock).mockResolvedValue({ id: userId, role: UserRole.FREELANCER, kycStatus: KycStatus.NONE, country: 'KE', phoneNumber: '+254712345678', name: 'Test User', email: 'test@example.com' });
+    
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({ 
+      id: userId, 
+      role: UserRole.FREELANCER, 
+      kycStatus: KycStatus.NONE, 
+      name: 'Test User', 
+      email: 'test@kenya.com', 
+      country: 'KE' 
+    });
+    
+    (prisma.user.update as jest.Mock).mockResolvedValue({ 
+      id: userId, 
+      role: UserRole.FREELANCER, 
+      kycStatus: KycStatus.NONE, 
+      country: 'KE', 
+      phoneNumber: '+254712345678', 
+      name: 'Test User', 
+      email: 'test@kenya.com' 
+    });
 
     const result = await service.submitIdentity(userId, dto);
 
@@ -109,7 +153,23 @@ describe('OnboardingService - submitIdentity', () => {
       where: { id: userId },
       data: { country: 'KE', phoneNumber: '+254712345678' },
     });
-    expect(result.phoneNumber).toBe('+254712345678');
+
+    const partnaService = (service as any).partnaService;
+    expect(partnaService.initiateKyc).toHaveBeenCalledWith({
+        accountName,
+        kesMobileNetwork: 'MPESA',
+        kesShortcode: '0712345678'
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: userId },
+      data: {
+        phoneNumber: '+254712345678',
+        paymentAccountReady: true,
+        partnaCustomerId: accountName,
+        partnaAccountRef: 'REF-123',
+      },
+    });
   });
 
   it("should prevent changing country if KYC is initiated", async () => {

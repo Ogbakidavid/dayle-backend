@@ -21,6 +21,11 @@ export class OnboardingController {
     return this.onboardingService.submitIdentity(userId, dto);
   }
 
+  @Post('initialize')
+  async initialize(@User('id') userId: string) {
+    return this.onboardingService.initializePartnaAccount(userId);
+  }
+
   @Post('verify-identity')
   async verifyIdentity(@User('id') userId: string, @Body() dto: SubmitIdentityDto) {
     return this.onboardingService.verifyIdentity(userId, dto);
@@ -29,6 +34,21 @@ export class OnboardingController {
   @Post('kyc')
   async submitKyc(@User('id') userId: string, @Body() dto: SubmitKycDto) {
     return this.onboardingService.submitKyc(userId, dto);
+  }
+
+  @Post('kyc-method')
+  async selectKycMethod(@User('id') userId: string, @Body('method') method: string) {
+    return this.onboardingService.selectKycMethod(userId, method);
+  }
+
+  @Post('kyc-otp')
+  async verifyKycOtp(@User('id') userId: string, @Body('otp') otp: string) {
+    return this.onboardingService.verifyKycOtp(userId, otp);
+  }
+
+  @Post('kyc-confirm-phone')
+  async confirmKycPhone(@User('id') userId: string, @Body('phone') phone: string) {
+    return this.onboardingService.confirmKycPhone(userId, phone);
   }
 
   @Get('status')

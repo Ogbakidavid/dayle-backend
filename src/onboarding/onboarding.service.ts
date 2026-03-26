@@ -41,6 +41,39 @@ export class OnboardingService {
     return this.sanitizeUser(updatedUser);
   }
 
+  async initializePartnaAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const accountName = userId.replace(/-/g, '').toLowerCase();
+
+    try {
+      this.logger.log(`[INITIALIZE PARTNA ACCOUNT] User ${userId}, accountName: ${accountName}`);
+      // Create the Partna account/profile
+      await this.partnaService.createAccount(accountName, user.email);
+      
+      // Store the accountName as partnaCustomerId immediately
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: { partnaCustomerId: accountName },
+      });
+
+      return { success: true, partnaCustomerId: accountName };
+    } catch (e) {
+      this.logger.error(`[PARTNA ACCOUNT INITIALIZATION FAILED] User ${userId}: ${e.message}`);
+      // Handle "already exists" elegantly - often returns 400 or has specific msg
+      if (e.message.includes('exists')) {
+        return { success: true, partnaCustomerId: accountName, note: 'Already exists' };
+      }
+      throw e;
+    }
+  }
+
   async submitIdentity(userId: string, dto: SubmitIdentityDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -259,11 +292,9 @@ export class OnboardingService {
       return this.sanitizeUser(user);
     }
 
-    // Split name into first and last
-    const [firstName = '', ...rest] = user.name.split(' ');
-    const lastName = rest.join(' ') || firstName;
-
     const country = this.normalizeCountry(user.country || '');
+    const accountName = userId.replace(/-/g, '').toLowerCase();
+
     if (country === 'NG') {
       let bvnToUse = dto.bvn || '';
 
@@ -279,46 +310,65 @@ export class OnboardingService {
       if (!bvnToUse) throw new BadRequestException('BVN is required');
 
       try {
-        // 1. [PARTNA CUSTOMER REGISTRATION]
-        const customerRes = await this.partnaService.createCustomer(
-          userId,
-          firstName,
-          lastName,
-          user.email,
-          'NG'
-        );
-        const partnaCustomerId = customerRes.data?.id || customerRes.id;
-
-        if (!partnaCustomerId) {
-          throw new Error('Failed to retrieve Partna customer ID');
-        }
+        // 1. [PARTNA PROFILE CREATION]
+        // We call this again just in case initialization was skipped or failed
+        await this.partnaService.createAccount(accountName, user.email).catch(e => {
+            if (!e.message.includes('exists')) throw e;
+            this.logger.log(`[PARTNA PROFILE] Profile for ${accountName} already exists, proceeding.`);
+        });
 
         // 2. [PARTNA BVN KYC]
-        await this.partnaService.initiateBvnKyc(
-          bvnToUse,
-          firstName,
-          lastName,
-          user.email,
-          partnaCustomerId
-        );
+        const kycRes = await this.partnaService.initiateKyc({
+            accountName,
+            bvn: bvnToUse
+        });
 
-        // 3. [PARTNA VIRTUAL ACCOUNT CREATION]
-        const accountRes = await this.partnaService.createAccount(partnaCustomerId);
+        // 3. [CHECK FOR OTP REQUIREMENT]
+        // Partna v4 might return verification methods if OTP is needed
+        if (kycRes.data?.methods) {
+            this.logger.log(`[PARTNA KYC] OTP required for user ${userId}. Methods: ${JSON.stringify(kycRes.data.methods)}`);
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    bvn: this.cryptoService.encrypt(bvnToUse),
+                    partnaCustomerId: accountName,
+                }
+            });
+            return {
+                requiresOtp: true,
+                methods: kycRes.data.methods
+            };
+        }
 
-        // 4. Update user ONLY after all Partna steps succeed
+        // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
+        // If no methods returned, assume KYC succeeded or is instant
+        const accountRes = await this.partnaService.createVirtualAccount(accountName, 'NGN');
+        const accountData = accountRes.data?.[0] || accountRes.data || {};
+
+        // 5. Update user ONLY after all Partna steps succeed
         const updatedUser = await this.prisma.user.update({
           where: { id: userId },
           data: {
             bvn: this.cryptoService.encrypt(bvnToUse),
             paymentAccountReady: true,
-            partnaCustomerId: partnaCustomerId,
-            partnaAccountRef: accountRes.accountRef || accountRes.id || 'REF-PENDING',
+            partnaCustomerId: accountName,
+            partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-PENDING',
           },
         });
 
         return this.sanitizeUser(updatedUser);
       } catch (e) {
         this.logger.error(`[BVN VERIFICATION FAILED] User ${userId}: ${e.message}`);
+
+        // Handle Partna specific error: "maximum kyc lookup attempts reached"
+        if (e.message.includes('maximum kyc lookup attempts reached')) {
+          throw new BadRequestException({
+            code: 'KYC_LOOKUP_LIMIT_REACHED',
+            message: "You've reached the maximum number of verification attempts. Please contact support via Slack to reset your account.",
+            originalError: e.message,
+          });
+        }
+
         throw new BadRequestException({
           message: "We couldn't verify your BVN. Please check the number and try again.",
           originalError: e.message,
@@ -329,23 +379,57 @@ export class OnboardingService {
       if (!phoneToUse) throw new BadRequestException('Phone number is required');
 
       try {
-        // [PARTNA PHONE CONFIRM]
-        await this.partnaService.confirmPhone(
-          phoneToUse,
-          firstName,
-          lastName,
-          user.email,
-        );
+        // 1. [PARTNA PROFILE CREATION]
+        await this.partnaService.createAccount(accountName, user.email).catch(e => {
+            if (!e.message.includes('exists')) throw e;
+            this.logger.log(`[PARTNA PROFILE] Profile for ${accountName} already exists, proceeding.`);
+        });
+
+        // 2. [PARTNA PHONE KYC]
+        // Sanitize phone for Kenya: +254712345678 -> 0712345678 (10 digits)
+        const sanitizedPhone = phoneToUse.replace('+254', '0');
+        
+        const kycRes = await this.partnaService.initiateKyc({
+            accountName,
+            kesMobileNetwork: 'MPESA',
+            kesShortcode: sanitizedPhone
+        });
+
+        // 3. [CHECK FOR OTP REQUIREMENT]
+        if (kycRes.data?.methods) {
+            await this.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    phoneNumber: phoneToUse,
+                    partnaCustomerId: accountName,
+                }
+            });
+            return {
+                requiresOtp: true,
+                methods: kycRes.data.methods
+            };
+        }
+
+        // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
+        // Create KES virtual account
+        const accountRes = await this.partnaService.createVirtualAccount(accountName, 'KES').catch(err => {
+            this.logger.warn(`[KE VIRTUAL ACCOUNT FAILED] ${err.message}. This might be expected if KES accounts are manual.`);
+            return { data: [] };
+        });
+        const accountData = accountRes.data?.[0] || accountRes.data || {};
 
         const updatedUser = await this.prisma.user.update({
           where: { id: userId },
           data: {
             phoneNumber: phoneToUse,
             paymentAccountReady: true,
+            partnaCustomerId: accountName,
+            partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-KE-PENDING',
           },
         });
         return this.sanitizeUser(updatedUser);
       } catch (err) {
+        this.logger.error(`[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`);
         throw new BadRequestException(
           "We couldn't set up your payment account. Please check your phone number and try again.",
         );
@@ -353,6 +437,62 @@ export class OnboardingService {
     }
 
     throw new BadRequestException('Unsupported country for identity verification.');
+  }
+
+  async selectKycMethod(userId: string, method: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+
+    const currency = user.country === 'KE' ? 'KES' : 'NGN';
+    try {
+      return await this.partnaService.selectKycMethod(user.partnaCustomerId, method, currency);
+    } catch (err: any) {
+      this.logger.error(`[KYC METHOD ERROR] ${err.message}`);
+      throw new BadRequestException(err.message);
+    }
+  }
+
+  async verifyKycOtp(userId: string, otp: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+
+    // 1. Verify OTP with Partna
+    const currency = user.country === 'KE' ? 'KES' : 'NGN';
+    try {
+      await this.partnaService.verifyKycOtp(user.partnaCustomerId, otp, currency);
+    } catch (err: any) {
+      this.logger.error(`[KYC OTP ERROR] ${err.message}`);
+      throw new BadRequestException(err.message);
+    }
+
+    // 2. Step 6: Create Virtual Account after successful verification (using PUT /v4/account)
+    const accountRes = await this.partnaService.createVirtualAccount(user.partnaCustomerId, currency).catch(err => {
+        this.logger.error(`[STEP 6 VIRTUAL ACCOUNT FAILED] ${err.message}`);
+        throw new BadRequestException(`KYC verified but virtual account creation failed: ${err.message}`);
+    });
+
+    // 3. Mark user as ready and store reference
+    const accountData = accountRes.data?.[0] || accountRes.data || {};
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        paymentAccountReady: true,
+        partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-POST-OTP',
+      },
+    });
+
+    return this.sanitizeUser(updatedUser);
+  }
+  async confirmKycPhone(userId: string, phone: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+
+    try {
+      return await this.partnaService.confirmPhone(user.partnaCustomerId, phone);
+    } catch (err: any) {
+      this.logger.error(`[KYC PHONE CONFIRM ERROR] ${err.message}`);
+      throw new BadRequestException(err.message);
+    }
   }
 
   // DEV ONLY - Remove before production deployment

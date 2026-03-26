@@ -35,21 +35,56 @@ export class PartnaService {
     } as any;
 
     const timestamp = new Date().toISOString();
-    try {
-      this.logger.log(`[${timestamp}] Partna v4 Request: ${options.method || 'GET'} ${url} Payload: ${options.body || 'none'}`);
-      
-      const response = await fetch(url, { ...options, headers });
-      const rawResponse = await response.text();
-      
-      this.logger.log(`[${timestamp}] Partna v4 Response [${response.status}]: ${rawResponse}`);
+    let lastError: any;
+    
+    for (let i = 0; i < 2; i++) {
+        try {
+          const sanitizedBody = (options.body && typeof options.body === 'string') ? this.sanitizePayload(options.body) : 'none';
+          this.logger.log(`[${timestamp}] Partna v4 Request (Try ${i+1}): ${options.method || 'GET'} ${url} Payload: ${sanitizedBody}`);
+          
+          const response = await fetch(url, { ...options, headers });
+          const rawResponse = await response.text();
+          
+          this.logger.log(`[${timestamp}] Partna v4 Response [${response.status}]: ${this.sanitizePayload(rawResponse)}`);
+    
+          if (!response.ok) {
+            throw new Error(`Partna API error: ${response.status} - ${this.sanitizePayload(rawResponse)}`);
+          }
+          return JSON.parse(rawResponse);
+        } catch (err) {
+          lastError = err;
+          this.logger.error(`[${timestamp}] Partna Request Try ${i+1} Failed: ${err.message}`);
+          
+          if (err.message?.includes('fetch failed')) {
+            // Wait 500ms before retry
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          throw err;
+        }
+    }
+    throw lastError;
+  }
 
-      if (!response.ok) {
-        throw new Error(`Partna API error: ${response.status} - ${rawResponse}`);
-      }
-      return JSON.parse(rawResponse);
-    } catch (err) {
-      this.logger.error(`[${timestamp}] Partna Request Failed: ${err.message}`);
-      throw err;
+  private sanitizePayload(payload: string): string {
+    try {
+      const data = JSON.parse(payload);
+      const sensitiveFields = ['bvn', 'kesShortcode', 'otp', 'phone', 'accountNumber'];
+      
+      const sanitize = (obj: any) => {
+        for (const key in obj) {
+          if (sensitiveFields.includes(key) && typeof obj[key] === 'string') {
+            obj[key] = obj[key].length > 4 ? `*******${obj[key].slice(-4)}` : '*******';
+          } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+            sanitize(obj[key]);
+          }
+        }
+      };
+
+      sanitize(data);
+      return JSON.stringify(data);
+    } catch {
+      return payload;
     }
   }
 
@@ -95,69 +130,105 @@ export class PartnaService {
   }
   
   /**
-   * POST /v4/customers
-   * Registers a customer in Partna v4
+   * POST /v4/account
+   * Registers a customer/account in Partna v4
    */
-  async createCustomer(userId: string, firstName: string, lastName: string, email: string, country: string = 'NG') {
-    this.logger.log(`[PARTNA CREATE CUSTOMER REQUEST] userId: ${userId}, name: ${firstName} ${lastName}, email: ${email}`);
-    const res = await this.request('/customers', {
+  async createAccount(accountName: string, email: string, type: string = 'personal') {
+    this.logger.log(`[PARTNA CREATE ACCOUNT REQUEST] accountName: ${accountName}, email: ${email}`);
+    const res = await this.request('/account', {
       method: 'POST',
       body: JSON.stringify({
-        userId,
-        first_name: firstName,
-        last_name: lastName,
+        accountName,
         email,
-        country,
+        type,
       }),
-    });
-    this.logger.log(`[PARTNA CREATE CUSTOMER RESPONSE] ${JSON.stringify(res)}`);
-    return res;
-  }
-
-  /**
-   * POST /v4/kyc/initiate-bvn-kyc
-   */
-  async initiateBvnKyc(bvn: string, firstName: string, lastName: string, email: string, customerId?: string) {
-    this.logger.log(`[PARTNA BVN KYC REQUEST] bvn: ${bvn}, name: ${firstName} ${lastName}, email: ${email}, customerId: ${customerId}`);
-    const res = await this.request('/kyc/initiate-bvn-kyc', {
-      method: 'POST',
-      body: JSON.stringify({
-        bvn,
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        customer_id: customerId, // Associate with Partna customer if provided
-      }),
-    });
-    this.logger.log(`[PARTNA BVN KYC RESPONSE] ${JSON.stringify(res)}`);
-    return res;
-  }
-
-  /**
-   * POST /v4/account/create-account
-   */
-  async createAccount(customerId: string) {
-    this.logger.log(`[PARTNA CREATE ACCOUNT REQUEST] customerId: ${customerId}`);
-    const res = await this.request('/account/create-account', {
-      method: 'POST',
-      body: JSON.stringify({ customer_id: customerId }),
     });
     this.logger.log(`[PARTNA CREATE ACCOUNT RESPONSE] ${JSON.stringify(res)}`);
     return res;
   }
 
   /**
+   * POST /v4/kyc
+   * Initiate KYC (BVN for Nigeria or Phone for Kenya) in Partna v4
+   */
+  async initiateKyc(params: {
+    accountName: string;
+    bvn?: string;
+    kesMobileNetwork?: string;
+    kesShortcode?: string;
+  }) {
+    this.logger.log(`[PARTNA KYC REQUEST] ${JSON.stringify(params)}`);
+    const res = await this.request('/kyc', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    this.logger.log(`[PARTNA KYC RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
+   * PUT /v4/kyc/verification-method
+   * Select KYC method (triggers OTP send)
+   */
+  async selectKycMethod(accountName: string, method: string, currency: string = 'NGN') {
+    this.logger.log(`[PARTNA KYC SELECT METHOD] accountName: ${accountName}, method: ${method}`);
+    const res = await this.request('/kyc/verification-method', {
+      method: 'PUT',
+      body: JSON.stringify({
+        accountName,
+        verificationMethod: method,
+        currency,
+      }),
+    });
+    this.logger.log(`[PARTNA KYC SELECT METHOD RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
+   * PUT /v4/kyc/confirm-otp
+   * Verify KYC OTP
+   */
+  async verifyKycOtp(accountName: string, otp: string, currency: string = 'NGN') {
+    this.logger.log(`[PARTNA KYC VERIFY OTP] accountName: ${accountName}, otp: ${otp}`);
+    const res = await this.request('/kyc/confirm-otp', {
+      method: 'PUT',
+      body: JSON.stringify({
+        accountName,
+        otp,
+        currency,
+      }),
+    });
+    this.logger.log(`[PARTNA KYC VERIFY OTP RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
+   * PUT /v4/account
+   * Create Bank Account (Virtual Account) in Partna v4
+   */
+  async createVirtualAccount(accountName: string, currency: string = 'NGN') {
+    this.logger.log(`[PARTNA CREATE VIRTUAL ACCOUNT REQUEST] accountName: ${accountName}, currency: ${currency}`);
+    const res = await this.request('/account', {
+      method: 'PUT',
+      body: JSON.stringify({
+        accountName,
+        currency,
+      }),
+    });
+    this.logger.log(`[PARTNA CREATE VIRTUAL ACCOUNT RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
    * PUT /v4/kyc/confirm-phone
    */
-  async confirmPhone(phone: string, firstName: string, lastName: string, email: string) {
-    this.logger.log(`[PARTNA PHONE CONFIRM REQUEST] phone: ${phone}, name: ${firstName} ${lastName}, email: ${email}`);
+  async confirmPhone(accountName: string, phone: string) {
+    this.logger.log(`[PARTNA PHONE CONFIRM REQUEST] accountName: ${accountName}, phone: ${phone}`);
     const res = await this.request('/kyc/confirm-phone', {
       method: 'PUT',
       body: JSON.stringify({
-        phoneNumber: phone,
-        firstName,
-        lastName,
-        email,
+        accountName,
+        phone,
       }),
     });
     this.logger.log(`[PARTNA PHONE CONFIRM RESPONSE] ${JSON.stringify(res)}`);
