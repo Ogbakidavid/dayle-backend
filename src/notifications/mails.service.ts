@@ -105,7 +105,7 @@ export class MailsService {
 
       if (error) {
         this.logger.error('Resend error:', error);
-        throw new Error(JSON.stringify(error));
+        throw new Error(error.message || 'Failed to send email via Resend');
       } else {
         this.logger.log('Email sent successfully:', data?.id);
         return data;

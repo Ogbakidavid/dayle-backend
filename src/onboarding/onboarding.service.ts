@@ -392,16 +392,15 @@ export class OnboardingService {
         }
 
         if (e.message.includes('Account not found')) {
-            throw new BadRequestException({
-                message: "Partna account initialization failed. This often happens if your email is already registered with a different account on Partna. Please try a different email or contact support.",
-                originalError: e.message,
-            });
+            throw new BadRequestException(
+                e.message || "Partna account initialization failed. This often happens if your email is already registered with a different account on Partna."
+            );
         }
 
-        throw new BadRequestException({
-          message: "We couldn't verify your BVN. Please check the number and try again.",
-          originalError: e.message,
-        });
+        throw new BadRequestException(
+          e.message ||
+            "We couldn't verify your BVN. Please check the number and try again.",
+        );
       }
     } else if (country === 'KE') {
       const phoneToUse = dto.phoneNumber || '';
@@ -413,7 +412,7 @@ export class OnboardingService {
         try {
             await this.partnaService.createAccount(finalAccountName, user.email);
         } catch (e: any) {
-             if (e.message.includes('exists')) {
+            if (e.message.includes('exists')) {
                 const accounts = await this.partnaService.getAccountDetails();
                 const existing = accounts.find((acc: any) => 
                     (acc.email || '').toLowerCase() === user.email.toLowerCase()

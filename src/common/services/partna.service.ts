@@ -48,7 +48,15 @@ export class PartnaService {
           this.logger.log(`[${timestamp}] Partna v4 Response [${response.status}]: ${this.sanitizePayload(rawResponse)}`);
     
           if (!response.ok) {
-            throw new Error(`Partna API error: ${response.status} - ${this.sanitizePayload(rawResponse)}`);
+            let errorMsg = `Partna request failed (${response.status})`;
+            try {
+              const parsed = JSON.parse(rawResponse);
+              errorMsg = parsed.message || parsed.error?.message || errorMsg;
+            } catch (pErr) {
+              // Fallback to raw if not JSON
+              errorMsg = rawResponse || errorMsg;
+            }
+            throw new Error(errorMsg);
           }
           return JSON.parse(rawResponse);
         } catch (err) {

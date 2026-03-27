@@ -25,6 +25,7 @@ async function bootstrap() {
     helmet({
       // Allow cross-origin requests needed for API communication
       crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginOpenerPolicy: false,
     }),
   );
 
@@ -50,26 +51,35 @@ async function bootstrap() {
         return;
       }
 
+      console.log(`[CORS] Incoming origin: ${origin}`);
+
       const allowedOrigins = [
         'http://localhost:3000',
         'http://localhost:3001',
         process.env.FRONTEND_URL,
         process.env.ADMIN_URL,
-      ].filter(Boolean);
+      ]
+        .filter((o): o is string => !!o)
+        .map((o) => o.replace(/\/$/, '')); // Remove trailing slashes
 
       const isDev = !isProduction;
+      const cleanOrigin = origin.replace(/\/$/, '');
+
       const isAllowed =
-        allowedOrigins.includes(origin) ||
-        (isDev && origin.endsWith('.ngrok-free.dev')) ||
-        (isDev && origin.endsWith('.netlify.app'));
+        allowedOrigins.includes(cleanOrigin) ||
+        (isDev && cleanOrigin.endsWith('.ngrok-free.dev')) ||
+        (isDev && cleanOrigin.endsWith('.netlify.app'));
 
       if (isAllowed) {
         callback(null, true);
       } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
+        console.warn(`[CORS] Origin ${origin} NOT allowed`);
+        callback(null, false); // Don't allow, but don't throw error
       }
     },
     credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Accept, Authorization, ngrok-skip-browser-warning',
   });
 
   // API prefix - exclude root route
