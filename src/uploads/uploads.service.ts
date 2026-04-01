@@ -44,7 +44,7 @@ export class UploadsService {
     const fileUrl = `https://${this.bucketName}.s3.${this.configService.get('AWS_REGION')}.amazonaws.com/${key}`;
 
     return {
-      uploadUrl,
+      url: uploadUrl,
       fileUrl,
       key, // We should store the key in DB for easy download URL generation later
       expiresIn: 300,

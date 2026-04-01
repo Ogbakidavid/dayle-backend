@@ -64,7 +64,7 @@ export class RatesService {
 
     if (txnType === 'funding') {
       const cached = this.transactionCache.get(cacheKey);
-      if (cached && now - cached.timestamp < 600000) {
+      if (cached && now - cached.timestamp < 30000) {
         return { rate: cached.rate, rateKey: cached.rateKey };
       }
     }

@@ -112,6 +112,16 @@ export class BlockchainService implements OnModuleInit {
     this.startEventListeners();
   }
 
+  public getTreasuryAddress(): string {
+    return this.treasuryWallet?.address || '';
+  }
+
+  public async getTreasuryCELOBalance(): Promise<bigint> {
+    if (!this.treasuryWallet) return 0n;
+    // Note: this.provider is private but we use it internally here
+    return await this.provider.getBalance(this.treasuryWallet.address);
+  }
+
   private startEventListeners() {
     this.logger.log('Starting blockchain event listeners...');
 

@@ -150,27 +150,42 @@ describe('DisputesService Adjudication', () => {
 
     await service.resolve('dispute-1', 'admin-1', UserRole.ADMIN, dto);
 
-    // Release 400 to freelancer
-    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
+    // 1. Release 400 to freelancer
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(1, {
       data: expect.objectContaining({
         type: LedgerEntryType.RELEASE,
         userId: 'freelancer-1',
         amount: 400000000000000000000n,
+        description: 'Dispute Resolution SPLIT (Release): Partial work completed',
+        disputeId: 'dispute-1',
+        status: TransactionStatus.CONFIRMED,
+        vaultId: 'vault-1',
       }),
     });
-    // Refund 555 to client (1000 - 400 - 45 fee)
-    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
+
+    // 2. Refund rest to client (1000 - 400 - 40 fee = 560)
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 555000000000000000000n,
+        amount: 560000000000000000000n,
+        description: 'Dispute Resolution SPLIT (Refund): Partial work completed',
+        disputeId: 'dispute-1',
+        status: TransactionStatus.CONFIRMED,
+        vaultId: 'vault-1',
       }),
     });
-    // Fee 45 to treasury
-    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledWith({
+
+    // 3. Fee to treasury (4% of 1000 = 40)
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(3, {
       data: expect.objectContaining({
         type: LedgerEntryType.FEE,
-        amount: 45000000000000000000n,
+        userId: 'admin-1',
+        amount: 40000000000000000000n,
+        description: 'Dispute Resolution SPLIT (Fee): Partial work completed',
+        disputeId: 'dispute-1',
+        status: TransactionStatus.CONFIRMED,
+        vaultId: 'vault-1',
       }),
     });
   });

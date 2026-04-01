@@ -90,6 +90,15 @@ export class VaultsController {
     return this.vaultsService.mockPartnaDeposit(id, body.amount, body.accountName);
   }
 
+  @Post(':id/confirm-payment')
+  @Roles(UserRole.CLIENT)
+  async confirmPayment(
+    @Param('id') id: string,
+    @User('id') userId: string,
+  ) {
+    return this.vaultsService.confirmPayment(id, userId);
+  }
+
   @Post(':id/withdraw')
   @Roles(UserRole.FREELANCER)
   async withdraw(

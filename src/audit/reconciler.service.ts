@@ -21,8 +21,16 @@ export class ReconcilerService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async handleCron() {
-    this.logger.log('Starting proactive reconciliation...');
-    await this.reconcileVaults();
+    try {
+      this.logger.log('Starting proactive reconciliation...');
+      await this.reconcileVaults();
+    } catch (err) {
+      if (err.message.includes('EAI_AGAIN') || err.message.includes('P1001')) {
+        this.logger.warn('Reconciler Service: Database temporarily unreachable. Skipping this run.');
+      } else {
+        this.logger.error(`Reconciler Service Failed: ${err.message}`);
+      }
+    }
   }
 
   async reconcileVaults() {

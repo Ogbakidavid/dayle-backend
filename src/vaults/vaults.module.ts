@@ -10,7 +10,6 @@ import { VaultsExpiryJob } from './jobs/vaults-expiry.job';
 import { BullModule } from '@nestjs/bullmq';
 import { WithdrawalRetryProcessor } from './withdrawal-retry.processor';
 import { PaycrestMonitoringJob } from './jobs/paycrest-monitoring.job';
-import { forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({

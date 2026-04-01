@@ -83,7 +83,7 @@ export class PaymentMethodsController {
       const bankMap = new Map();
 
       // Partna banks
-      partnaBanks.forEach((b: any) => {
+      (partnaBanks as any[]).forEach((b: any) => {
         bankMap.set(b.code, {
           name: b.name,
           code: b.code,

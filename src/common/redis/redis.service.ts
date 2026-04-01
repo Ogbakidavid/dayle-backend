@@ -51,7 +51,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publish(channel: string, message: any): Promise<number> {
-    if (this.redisClient.status !== 'ready') return 0;
+    if (!this.redisClient || this.redisClient.status !== 'ready') return 0;
     try {
       const payload =
         typeof message === 'string' ? message : JSON.stringify(message);
@@ -92,7 +92,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async del(key: string): Promise<number> {
-    if (this.redisClient.status !== 'ready') return 0;
+    if (!this.redisClient || this.redisClient.status !== 'ready') return 0;
     try {
       return await this.redisClient.del(key);
     } catch (err) {
@@ -102,7 +102,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async clearCacheByPattern(pattern: string): Promise<void> {
-    if (this.redisClient.status !== 'ready') return;
+    if (!this.redisClient || this.redisClient.status !== 'ready') return;
     try {
       const keys = await this.redisClient.keys(pattern);
       if (keys.length > 0) {

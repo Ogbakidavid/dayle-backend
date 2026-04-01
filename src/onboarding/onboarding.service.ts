@@ -326,9 +326,9 @@ export class OnboardingService {
                 
                 if (existing) {
                     finalAccountName =
-                      existing.externalRef ||
+                      (existing.externalRef ||
                       existing.account_name ||
-                      existing.accountName;
+                      existing.accountName) as string;
                     this.logger.log(`[PARTNA RECOVERY] Successfully recovered accountName: ${finalAccountName} for ${user.email}`);
                 } else {
                     this.logger.error(`[PARTNA RECOVERY FAILED] Collision reported but email ${user.email} not found in account list.`);
@@ -374,7 +374,7 @@ export class OnboardingService {
             bvn: this.cryptoService.encrypt(bvnToUse),
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-PENDING',
+            partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-PENDING',
           },
         });
 
@@ -419,9 +419,9 @@ export class OnboardingService {
                 );
                 if (existing) {
                     finalAccountName =
-                      existing.externalRef ||
+                      (existing.externalRef ||
                       existing.account_name ||
-                      existing.accountName;
+                      existing.accountName) as string;
                 }
             } else {
                 throw e;
@@ -467,7 +467,7 @@ export class OnboardingService {
             phoneNumber: phoneToUse,
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-KE-PENDING',
+            partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-KE-PENDING',
           },
         });
         return this.sanitizeUser(updatedUser);
@@ -520,7 +520,7 @@ export class OnboardingService {
       where: { id: userId },
       data: {
         paymentAccountReady: true,
-        partnaAccountRef: accountData.accountNumber || accountData.id || 'REF-POST-OTP',
+        partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-POST-OTP',
       },
     });
 

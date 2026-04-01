@@ -28,16 +28,20 @@ export function calculateDayleFee(vaultAmountUSD: number) {
   
   // Calculate USD amounts
   const settlementFeeUSD = Number(((vaultAmountUSD * settlementFeePercent) / 100).toFixed(2));
-  const totalFeeUSD = settlementFeeUSD;
-  const freelancerReceivesUSD = Number((vaultAmountUSD - totalFeeUSD).toFixed(2));
+  const processingFeeUSD = Number(((vaultAmountUSD * processingFeePercent) / 100).toFixed(2));
+  const totalFeeUSD = Number((settlementFeeUSD + processingFeeUSD).toFixed(2));
+  const freelancerReceivesUSD = Number((vaultAmountUSD - settlementFeeUSD).toFixed(2));
 
-  // Basis points for smart contract (Settlement fee)
-  const totalFeeBasisPoints = Math.round(totalFeePercent * 100);
+  // Basis points for smart contract (Settlement fee ONLY)
+  // Processing fee is collected during onramp, and doesn't enter the smart contract
+  const totalFeeBasisPoints = Math.round(settlementFeePercent * 100);
 
   return {
     settlementFeePercent,
+    processingFeePercent,
     totalFeePercent,
     settlementFeeUSD,
+    processingFeeUSD,
     totalFeeUSD,
     freelancerReceivesUSD,
     totalFeeBasisPoints,
