@@ -29,6 +29,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.redisClient = new Redis(redisUrl, {
       maxRetriesPerRequest: null, // Critical for BullMQ and Upstash
       enableOfflineQueue: false,
+      tls: redisUrl.startsWith('rediss://') ? {} : undefined,
     });
 
     this.redisClient.on('connect', () => {

@@ -8,6 +8,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import Redis from 'ioredis';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
@@ -69,9 +70,14 @@ import { RatesModule } from './rates/rates.module';
         };
 
         if (configService.get('ENABLE_REDIS') !== 'false') {
-          throttlerOptions.storage = new ThrottlerStorageRedisService(
-            configService.get<string>('REDIS_URL'),
-          );
+          const redisUrl = configService.get<string>('REDIS_URL');
+          if (redisUrl) {
+            throttlerOptions.storage = new ThrottlerStorageRedisService(
+              new Redis(redisUrl, {
+                tls: redisUrl.startsWith('rediss://') ? {} : undefined,
+              }),
+            );
+          }
         }
 
         return throttlerOptions;
@@ -88,6 +94,7 @@ import { RatesModule } from './rates/rates.module';
                 connection: {
                   url: redisUrl,
                   maxRetriesPerRequest: null,
+                  tls: redisUrl?.startsWith('rediss://') ? {} : undefined,
                 },
                 // Global worker settings to reduce Redis command volume (~90% savings)
                 defaultJobOptions: {
