@@ -49,6 +49,7 @@ async function bootstrap() {
       'http://localhost:3001',
       process.env.FRONTEND_URL || 'https://dayle.netlify.app',
       process.env.ADMIN_URL || 'https://dayle-admin.netlify.app',
+      /\.netlify\.app$/,
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -57,7 +58,6 @@ async function bootstrap() {
       'Accept',
       'Authorization',
       'x-idempotency-key',
-      'ngrok-skip-browser-warning',
     ],
   });
 
