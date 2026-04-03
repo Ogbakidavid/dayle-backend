@@ -154,6 +154,7 @@ model Vault {
   partnaAccountName      String?
   partnaAccountNumber    String?
   partnaBankName         String?
+  partnaBankCode         String?
   partnaExpectedAmount   Float?
   partnaExpiryDate       DateTime?
   partnaRampReference    String?        @unique
@@ -420,6 +421,11 @@ enum VaultStatus {
   PROCESSING_PAYMENT
   AWAITING_PAYMENT
   WITHDRAWAL_PENDING
+  RELEASING
+  RELEASE_FAILED
+  REFUNDING
+  REFUND_FAILED
+  WITHDRAWAL_FAILED
 }
 
 enum VaultType {

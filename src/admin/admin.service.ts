@@ -13,6 +13,8 @@ import {
 } from '../domain/enums';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class AdminService {
@@ -20,6 +22,7 @@ export class AdminService {
     private prisma: PrismaService,
     private authService: AuthService,
     private notificationsService: NotificationsService,
+    @InjectQueue('vault-withdrawal') private withdrawalQueue: Queue,
   ) {}
 
   async getStats(user: any) {
@@ -466,19 +469,50 @@ export class AdminService {
   }
 
   async retryWithdrawal(adminId: string, vaultId: string) {
-    // This would typically trigger the offramp process again
     const vault = await this.prisma.vault.findUnique({
       where: { id: vaultId },
+      include: { freelancer: { include: { wallet: true } } },
     });
 
-    if (!vault || vault.status !== VaultStatus.WITHDRAWAL_PENDING) {
-      throw new Error('Vault not in withdrawal pending state');
+    if (!vault) {
+      throw new Error('Vault not found');
     }
 
-    // Logic to re-trigger withdrawal
-    // For now, we'll just log it
-    console.log(`Retrying withdrawal for vault ${vaultId} by admin ${adminId}`);
-    return { success: true, message: 'Withdrawal retry initiated' };
+    // Admins can retry if it failed OR if it is pending (force-push)
+    const allowedStatuses = [
+      VaultStatus.WITHDRAWAL_PENDING,
+      VaultStatus.WITHDRAWAL_FAILED,
+      VaultStatus.FUNDED,
+    ];
+
+    if (!allowedStatuses.includes(vault.status as any)) {
+      throw new Error(`Cannot retry withdrawal for vault in status ${vault.status}`);
+    }
+
+    // Get bank details from most recent ramp if possible, or fallback
+    // In a real scenario, we might want to pass these in the DTO,
+    // but for "Retry", we assume the same details.
+    const bankDetails = {
+      accountNumber: vault.partnaAccountNumber || '',
+      bankCode: vault.partnaBankCode || '',
+      accountName: vault.partnaAccountName || '',
+      bankName: vault.partnaBankName || '',
+    };
+
+    await this.withdrawalQueue.add('process-withdrawal', {
+      vaultId,
+      userId: vault.freelancerId,
+      bankDetails,
+    });
+
+    // Update status to pending so it shows correctly in UI
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: { status: VaultStatus.WITHDRAWAL_PENDING },
+    });
+
+    console.log(`Withdrawal retry re-queued for vault ${vaultId} by admin ${adminId}`);
+    return { success: true, message: 'Withdrawal retry initiated (Queued)' };
   }
 
   async markWithdrawalFailed(adminId: string, vaultId: string) {

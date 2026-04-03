@@ -60,8 +60,14 @@ export class VaultsService {
     private paycrestService: PaycrestService,
     private configService: ConfigService,
     @Optional()
-    @InjectQueue('withdrawal-retry')
-    private withdrawalRetryQueue: Queue,
+    @InjectQueue('vault-withdrawal')
+    private withdrawalQueue: Queue,
+    @Optional()
+    @InjectQueue('vault-release')
+    private vaultReleaseQueue: Queue,
+    @Optional()
+    @InjectQueue('vault-refund')
+    private vaultRefundQueue: Queue,
   ) {}
 
   async create(dto: CreateVaultDto, userId: string, role: string) {
@@ -660,7 +666,6 @@ export class VaultsService {
       );
     }
 
-    // Freelancer can withdraw if status is RELEASED or if we are retrying a PENDING one
     if (
       vault.status !== VaultStatus.RELEASED &&
       vault.status !== VaultStatus.WITHDRAWAL_PENDING
@@ -668,190 +673,30 @@ export class VaultsService {
       throw new BadRequestException('Funds have not been released yet');
     }
 
-    // Deduct 0.5% app processing fee from freelancer's payout
-    const amountUSD = Number(vault.freelancerReceivesUSD || 0) * 0.995;
-    if (amountUSD <= 0) {
-      throw new BadRequestException(
-        'Withdrawal amount must be greater than zero.',
+    // Immediately mark as pending and return to client
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: { status: VaultStatus.WITHDRAWAL_PENDING },
+    });
+
+    // Queue the actual work
+    if (this.withdrawalQueue) {
+      await this.withdrawalQueue.add(
+        'process-withdrawal',
+        { vaultId, userId, bankDetails, retryCount },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+        },
       );
+    } else {
+      this.logger.warn(`Withdrawal queue not available. Skipping background job for vault ${vaultId}`);
     }
 
-    const currency = vault.freelancer?.country === 'Kenya' ? 'KES' : 'NGN';
-    const network = currency === 'KES' ? 'mpesa' : 'naira';
-
-    const rampReference = crypto.randomBytes(16).toString('hex');
-
-    // 1. Try Paycrest as Primary
-    try {
-      this.logger.log(
-        `[PAYCREST RATE REQUEST] vaultId: ${vaultId}, amountUSD: ${amountUSD}`,
-      );
-      const rateResponse = await this.paycrestService.getExchangeRate(
-        amountUSD,
-        currency,
-      );
-      const rate = parseFloat(rateResponse.data);
-      this.logger.log(`[PAYCREST RATE RESPONSE] rate: ${rate}`);
-
-      this.logger.log(`[PAYCREST ORDER REQUEST] vaultId: ${vaultId}`);
-      const orderResponse = await this.paycrestService.createOrder({
-        amount: amountUSD,
-        currency,
-        customerEmail: vault.freelancer.email,
-        reference: rampReference,
-        vaultId,
-        rate,
-        bankDetails: {
-          account_number: bankDetails.accountNumber,
-          bank_code: bankDetails.bankCode,
-          account_name: bankDetails.accountName,
-        },
-      });
-      this.logger.log(`[PAYCREST ORDER RESPONSE] orderId: ${orderResponse.id}`);
-      this.logger.log(`[OFFRAMP PROVIDER: PAYCREST] vaultId: ${vaultId}`);
-
-      const receiveAddress = orderResponse.receiveAddress;
-      if (!receiveAddress) throw new Error('No receive address from Paycrest');
-
-      const amountWei = ethers.parseUnits(
-        amountUSD.toString(),
-        vault.tokenDecimals,
-      );
-      this.logger.log(
-        `[PAYCREST WITHDRAWAL USDC SENT] vaultId: ${vaultId}, amount: ${amountUSD}, toAddress: ${receiveAddress}`,
-      );
-
-      await this.blockchainService.transferTreasuryToken(
-        receiveAddress,
-        amountWei,
-        vault.tokenAddress,
-      );
-
-      await this.prisma.vault.update({
-        where: { id: vaultId },
-        data: {
-          status: VaultStatus.WITHDRAWAL_PENDING,
-          paycrestOrderId: orderResponse.id,
-          paycrestReceiveAddress: receiveAddress,
-          paycrestValidUntil: orderResponse.validUntil
-            ? new Date(orderResponse.validUntil)
-            : null,
-          paycrestRate: rate,
-          paycrestOrderCreatedAt: new Date(),
-        },
-      });
-
-      return {
-        rampReference,
-        expectedLocalAmount: amountUSD * rate,
-        currency,
-        status: 'WITHDRAWAL_PENDING',
-      };
-    } catch (paycrestError) {
-      this.logger.warn(
-        `Paycrest withdrawal failed, falling back to Partna: ${paycrestError.message}`,
-      );
-
-      // 2. Partna Fallback
-      try {
-        this.logger.log(
-          `[PARTNA WITHDRAWAL INITIATED] vaultId: ${vaultId}, amountUSD: ${amountUSD}`,
-        );
-        const { rate, rateKey } = await this.ratesService.getTransactionRate(
-          currency,
-          amountUSD,
-          vaultId,
-          'withdrawal',
-        );
-
-        const rampResponse: any = await this.partnaService.createRamp({
-          type: 'cryptoToFiat',
-          fromCurrency: 'USDC',
-          fromNetwork: 'celo',
-          toCurrency: currency,
-          toNetwork: network,
-          fromAmount: amountUSD,
-          accountNumber: bankDetails.accountNumber,
-          bankCode: bankDetails.bankCode,
-          accountName: bankDetails.accountName,
-          rateKey: rateKey,
-          rampReference: rampReference,
-          cancelPendingRampRequest: false,
-        });
-
-        this.logger.log(
-          `[OFFRAMP PROVIDER: PARTNA FALLBACK] vaultId: ${vaultId}, rampId: ${rampResponse.data?.rampReference || rampReference}`,
-        );
-
-        const cryptoAddress =
-          typeof rampResponse?.data?.cryptoAddress === 'string'
-            ? rampResponse.data.cryptoAddress
-            : undefined;
-        if (!cryptoAddress) throw new Error('No crypto address from Partna');
-
-        const amountWei = ethers.parseUnits(
-          amountUSD.toString(),
-          vault.tokenDecimals,
-        );
-        this.logger.log(
-          `[PARTNA OFFRAMP USDC SENT] vaultId: ${vaultId}, amount: ${amountUSD}, toAddress: ${cryptoAddress}`,
-        );
-
-        await this.blockchainService.transferTreasuryToken(
-          cryptoAddress,
-          amountWei,
-          vault.tokenAddress,
-        );
-
-        await this.prisma.vault.update({
-          where: { id: vaultId },
-          data: {
-            status: VaultStatus.WITHDRAWAL_PENDING,
-            partnaRampReference: rampReference,
-            partnaRateKey: rateKey,
-            partnaBankName: bankDetails.bankName,
-            partnaAccountNumber: bankDetails.accountNumber,
-            partnaAccountName: bankDetails.accountName,
-          },
-        });
-
-        return {
-          rampReference,
-          expectedLocalAmount: rampResponse?.data?.toAmount,
-          currency,
-          status: 'WITHDRAWAL_PENDING',
-        };
-      } catch (partnaError) {
-        this.logger.error(
-          `Withdrawal totally failed for vault ${vaultId}: ${partnaError.message}`,
-        );
-
-        if (retryCount < 2) {
-          await this.scheduleWithdrawalRetry(
-            vaultId,
-            userId,
-            bankDetails,
-            retryCount + 1,
-          );
-          await this.prisma.vault.update({
-            where: { id: vaultId },
-            data: { status: VaultStatus.WITHDRAWAL_PENDING },
-          });
-
-          return {
-            status: 'WITHDRAWAL_PENDING',
-            message: 'Withdrawal failed. We will retry automatically.',
-          };
-        } else {
-          this.logger.error(
-            `[ADMIN ALERT] Withdrawal failed for vault ${vaultId} after multiple attempts`,
-          );
-          throw new BadRequestException(
-            'Withdrawal failed after multiple attempts. Please contact support.',
-          );
-        }
-      }
-    }
+    return {
+      status: 'WITHDRAWAL_PENDING',
+      message: 'Withdrawal initiated. Processing in background.',
+    };
   }
 
   public async scheduleWithdrawalRetry(
@@ -860,17 +705,17 @@ export class VaultsService {
     bankDetails: any,
     retryCount: number,
   ) {
-    if (!this.withdrawalRetryQueue) {
+    if (!this.withdrawalQueue) {
       this.logger.warn(
-        `[WITHDRAWAL RETRY BYPASS] ENABLE_BULL is false. Retry for vault ${vaultId} skipped.`,
+        `[WITHDRAWAL RETRY BYPASS] Withdrawal queue not available. Retry for vault ${vaultId} skipped.`,
       );
       return;
     }
     this.logger.log(
       `Scheduling withdrawal retry for vault ${vaultId}, attempt ${retryCount + 1}`,
     );
-    await this.withdrawalRetryQueue.add(
-      'withdrawal-retry',
+    await this.withdrawalQueue.add(
+      'process-withdrawal',
       { vaultId, userId, bankDetails, retryCount },
       { delay: 5 * 60 * 1000 }, // 5 minutes
     );
@@ -1183,17 +1028,7 @@ export class VaultsService {
     userId: string,
     role: string,
   ) {
-    const prisma = this.prisma;
-    if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(
-        `idempotency:${dto.idempotencyKey}`,
-      );
-      if (cachedResponse) {
-        return JSON.parse(cachedResponse);
-      }
-    }
-
-    const vault = await (this.prisma.vault.findUnique as any)({
+    const vault = await this.prisma.vault.findUnique({
       where: { id: vaultId },
     });
 
@@ -1204,8 +1039,16 @@ export class VaultsService {
       });
     }
 
+    // Guard against double-release
+    if (
+      vault.status === VaultStatus.RELEASING ||
+      vault.status === (VaultStatus.RELEASED as any)
+    ) {
+      throw new BadRequestException('Release already in progress or completed.');
+    }
+
     // Enforce Tier 2 KYC for fund release
-    const client = await (this.prisma.user.findUnique as any)({
+    const client = await this.prisma.user.findUnique({
       where: { id: userId },
     });
     if (client?.kycStatus !== KycStatus.VERIFIED) {
@@ -1214,111 +1057,31 @@ export class VaultsService {
         message: 'Identity verification (Tier 2) is required to release funds.',
       });
     }
-    const budgetUSD = parseFloat(
-      ethers.formatUnits(
-        vault.totalAmount || BigInt(0),
-        vault.tokenDecimals || 6,
-      ),
-    );
-    const fees = calculateDayleFee(budgetUSD);
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const updatedVault = await tx.vault.update({
-        where: { id: vaultId },
-        data: {
-          status: VaultStatus.RELEASED as any,
-          settlementFeeUSD: fees.settlementFeeUSD,
-          totalFeeUSD: fees.totalFeeUSD,
-          freelancerReceivesUSD: fees.freelancerReceivesUSD,
-        },
-      });
-
-      const ledgerEntry = await tx.ledgerEntry.create({
-        data: {
-          userId: vault.freelancerId!,
-          vaultId: vault.id,
-          type: LedgerEntryType.RELEASE,
-          amount: ethers.parseUnits(
-            fees.freelancerReceivesUSD.toString(),
-            vault.tokenDecimals,
-          ),
-          currency: vault.tokenSymbol || 'USD',
-          status: TransactionStatus.CONFIRMED,
-          description: `Release for vault: ${vault.title} (Net of fees)`,
-          completedAt: new Date(),
-        },
-      });
-
-      // Also create a negative LOCK entry to clear the pending settlement
-      await tx.ledgerEntry.create({
-        data: {
-          userId: vault.freelancerId!,
-          vaultId: vault.id,
-          type: LedgerEntryType.LOCK,
-          amount: -vault.totalAmount, // Negative to balance the original LOCK
-          currency: vault.tokenSymbol || 'USD',
-          status: TransactionStatus.CONFIRMED,
-          description: `Locked funds resolved for vault: ${vault.title}`,
-          completedAt: new Date(),
-        },
-      });
-
-      // Also create a fee ledger entry for tracking
-      await tx.ledgerEntry.create({
-        data: {
-          userId: vault.clientId,
-          vaultId: vault.id,
-          type: LedgerEntryType.FEE,
-          amount: ethers.parseUnits(
-            fees.totalFeeUSD.toString(),
-            vault.tokenDecimals,
-          ),
-          currency: vault.tokenSymbol || 'USD',
-          status: TransactionStatus.CONFIRMED,
-          description: `Platform fee for vault: ${vault.title}`,
-          completedAt: new Date(),
-        },
-      });
-
-      return { vault: updatedVault, ledgerEntry };
+    // Immediately mark as releasing and return to client
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: { status: VaultStatus.RELEASING as any },
     });
 
-    // 2. Trigger on-chain release if a vault address exists
-    if (vault.vaultAddress) {
-      try {
-        await this.blockchainService.releaseVault(
-          vault.vaultAddress,
-          fees.totalFeeBasisPoints,
-        );
-      } catch (error) {
-        this.logger.error(
-          `On-chain release failed for vault ${vaultId}`,
-          error,
-        );
-      }
-    }
-
-    await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
-
-    // Notify freelancer about the release
-    if (vault.freelancerId) {
-      await this.notificationsService.createNotification(vault.freelancerId, {
-        type: 'payment',
-        title: 'Funds Released',
-        message: `The client has released the funds for vault "${vault.title}".`,
-        action: `/freelancer/vault/${vaultId}`,
-      });
-    }
-
-    if (dto.idempotencyKey) {
-      await this.redis.set(
-        `idempotency:${dto.idempotencyKey}`,
-        JSON.stringify(result),
-        24 * 60 * 60,
+    // Queue the actual work
+    if (this.vaultReleaseQueue) {
+      await this.vaultReleaseQueue.add(
+        'process-release',
+        { vaultId, userId, dto },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+        },
       );
+    } else {
+      this.logger.warn(`Vault release queue not available. Skipping background job for vault ${vaultId}`);
     }
 
-    return result;
+    return {
+      status: (VaultStatus as any).RELEASING,
+      message: 'Release initiated. Processing in background.',
+    };
   }
 
   async refund(
@@ -1327,18 +1090,7 @@ export class VaultsService {
     userId: string,
     role: string,
   ) {
-    const prisma = this.prisma;
-    // Check idempotency
-    if (dto.idempotencyKey) {
-      const cachedResponse = await this.redis.get(
-        `idempotency:${dto.idempotencyKey}`,
-      );
-      if (cachedResponse) {
-        return JSON.parse(cachedResponse);
-      }
-    }
-
-    const vault = await (this.prisma.vault.findUnique as any)({
+    const vault = await this.prisma.vault.findUnique({
       where: { id: vaultId },
     });
 
@@ -1348,56 +1100,39 @@ export class VaultsService {
         message: 'Not authorized',
       });
     }
-    const result = await this.prisma.$transaction(async (tx) => {
-      const updatedVault = await tx.vault.update({
-        where: { id: vaultId },
-        data: { status: VaultStatus.REFUNDED as any },
-      });
 
-      const ledgerEntry = await tx.ledgerEntry.create({
-        data: {
-          userId,
-          vaultId: vault.id,
-          type: LedgerEntryType.REFUND,
-          amount: vault.totalAmount,
-          currency: vault.tokenSymbol || 'USD',
-          status: TransactionStatus.CONFIRMED,
-          description: `Refund for vault: ${vault.title}`,
-          completedAt: new Date(),
+    // Guard against double-refund
+    if (
+      vault.status === VaultStatus.REFUNDING ||
+      vault.status === (VaultStatus.REFUNDED as any)
+    ) {
+      throw new BadRequestException('Refund already in progress or completed.');
+    }
+
+    // Immediately mark as refunding and return to client
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: { status: VaultStatus.REFUNDING as any },
+    });
+
+    // Queue the actual work
+    if (this.vaultRefundQueue) {
+      await this.vaultRefundQueue.add(
+        'process-refund',
+        { vaultId, userId, dto },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
         },
-      });
-
-      return { success: true, ledgerEntry, vault: updatedVault };
-    });
-
-    if (dto.idempotencyKey) {
-      await this.redis.set(
-        `idempotency:${dto.idempotencyKey}`,
-        JSON.stringify(result),
-        24 * 60 * 60,
       );
+    } else {
+      this.logger.warn(`Vault refund queue not available. Skipping background job for vault ${vaultId}`);
     }
 
-    // 2. Trigger on-chain refund if a vault address exists
-    if (vault.vaultAddress) {
-      try {
-        await this.blockchainService.refundVault(vault.vaultAddress);
-      } catch (error) {
-        this.logger.error(`On-chain refund failed for vault ${vaultId}`, error);
-      }
-    }
-
-    await this.invalidateVaultCache(vaultId, userId, vault.freelancerId);
-
-    // Notify client about the refund
-    await this.notificationsService.createNotification(userId, {
-      type: 'payment',
-      title: 'Funds Refunded',
-      message: `The funds for vault "${vault.title}" have been successfully refunded to your account.`,
-      action: `/client/vault/${vaultId}`,
-    });
-
-    return result;
+    return {
+      status: (VaultStatus as any).REFUNDING,
+      message: 'Refund initiated. Processing in background.',
+    };
   }
 
   async updateStatus(

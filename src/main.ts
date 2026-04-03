@@ -44,43 +44,21 @@ async function bootstrap() {
   // CORS — Wildcard suffixes only allowed in non-production environments for developer tooling
   const isProduction = process.env.NODE_ENV === 'production';
   app.enableCors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl)
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      console.log(`[CORS] Incoming origin: ${origin}`);
-
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        process.env.FRONTEND_URL,
-        process.env.ADMIN_URL,
-      ]
-        .filter((o): o is string => !!o)
-        .map((o) => o.replace(/\/$/, '')); // Remove trailing slashes
-
-      const isDev = !isProduction;
-      const cleanOrigin = origin.replace(/\/$/, '');
-
-      const isAllowed =
-        allowedOrigins.includes(cleanOrigin) ||
-        (isDev && cleanOrigin.endsWith('.ngrok-free.dev')) ||
-        (isDev && cleanOrigin.endsWith('.netlify.app'));
-
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        console.warn(`[CORS] Origin ${origin} NOT allowed`);
-        callback(null, false); // Don't allow, but don't throw error
-      }
-    },
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      process.env.FRONTEND_URL || 'https://dayle.netlify.app',
+      process.env.ADMIN_URL || 'https://dayle-admin.netlify.app',
+    ],
     credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders:
-      'Content-Type, Accept, Authorization, ngrok-skip-browser-warning',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'x-idempotency-key',
+      'ngrok-skip-browser-warning',
+    ],
   });
 
   // API prefix - exclude root route

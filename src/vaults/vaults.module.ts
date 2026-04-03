@@ -9,6 +9,9 @@ import { ServicesModule } from '../common/services/services.module';
 import { VaultsExpiryJob } from './jobs/vaults-expiry.job';
 import { BullModule } from '@nestjs/bullmq';
 import { WithdrawalRetryProcessor } from './withdrawal-retry.processor';
+import { VaultWithdrawalProcessor } from './vault-withdrawal.processor';
+import { VaultReleaseProcessor } from './vault-release.processor';
+import { VaultRefundProcessor } from './vault-refund.processor';
 import { PaycrestMonitoringJob } from './jobs/paycrest-monitoring.job';
 import { AuthModule } from '../auth/auth.module';
 
@@ -21,18 +24,35 @@ import { AuthModule } from '../auth/auth.module';
     ServicesModule,
     ...(process.env.ENABLE_BULL !== 'false'
       ? [
-          BullModule.registerQueue({
-            name: 'withdrawal-retry',
-            defaultJobOptions: {
-              removeOnComplete: 20,
-              removeOnFail: 20,
-              attempts: 3,
-              backoff: {
-                type: 'exponential',
-                delay: 5000,
+          BullModule.registerQueue(
+            {
+              name: 'vault-withdrawal',
+              defaultJobOptions: {
+                removeOnComplete: 20,
+                removeOnFail: 20,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
               },
             },
-          }),
+            {
+              name: 'vault-release',
+              defaultJobOptions: {
+                removeOnComplete: 20,
+                removeOnFail: 20,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+              },
+            },
+            {
+              name: 'vault-refund',
+              defaultJobOptions: {
+                removeOnComplete: 20,
+                removeOnFail: 20,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+              },
+            },
+          ),
         ]
       : []),
   ],
@@ -44,7 +64,14 @@ import { AuthModule } from '../auth/auth.module';
     process.env.NODE_ENV === 'production'
       ? [VaultsExpiryJob, PaycrestMonitoringJob]
       : []),
-    ...(process.env.ENABLE_BULL !== 'false' ? [WithdrawalRetryProcessor] : []),
+    ...(process.env.ENABLE_BULL !== 'false'
+      ? [
+          WithdrawalRetryProcessor,
+          VaultWithdrawalProcessor,
+          VaultReleaseProcessor,
+          VaultRefundProcessor,
+        ]
+      : []),
   ],
   exports: [VaultsService],
 })
