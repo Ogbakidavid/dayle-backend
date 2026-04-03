@@ -294,14 +294,20 @@ export class NotificationsService {
     const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
 
     if (!chatId) {
-      this.logger.warn('ADMIN_TELEGRAM_CHAT_ID not set. Admin notification skipped.');
+      this.logger.warn(
+        'ADMIN_TELEGRAM_CHAT_ID not set. Admin notification skipped.',
+      );
       this.logger.log(`[Admin Notification]: ${message}`);
       return;
     }
 
     if (!botToken) {
-      this.logger.warn('TELEGRAM_BOT_TOKEN not set. Cannot send Telegram message to admin.');
-      this.logger.log(`[Admin Notification (Blocked by missing token)]: ${message}`);
+      this.logger.warn(
+        'TELEGRAM_BOT_TOKEN not set. Cannot send Telegram message to admin.',
+      );
+      this.logger.log(
+        `[Admin Notification (Blocked by missing token)]: ${message}`,
+      );
       return;
     }
 
@@ -315,7 +321,9 @@ export class NotificationsService {
         }),
       });
     } catch (error) {
-      this.logger.error(`Failed to send Telegram admin notification: ${error.message}`);
+      this.logger.error(
+        `Failed to send Telegram admin notification: ${error.message}`,
+      );
     }
   }
 }

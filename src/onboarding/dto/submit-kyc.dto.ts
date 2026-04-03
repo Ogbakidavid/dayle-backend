@@ -20,7 +20,8 @@ export class SubmitKycDto {
   @IsString()
   @IsOptional()
   @IsIn(['NG', 'KE', 'NGA', 'KEN'], {
-    message: "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
+    message:
+      "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
   })
   country?: string;
 

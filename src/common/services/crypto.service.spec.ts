@@ -33,10 +33,10 @@ describe('CryptoService', () => {
   it('should encrypt and decrypt a string correctly', () => {
     const originalText = '12345678901';
     const encrypted = service.encrypt(originalText);
-    
+
     expect(encrypted).toBeDefined();
     expect(encrypted).toContain(':');
-    
+
     const decrypted = service.decrypt(encrypted);
     expect(decrypted).toBe(originalText);
   });
@@ -44,7 +44,7 @@ describe('CryptoService', () => {
   it('should never return the original text in encrypted form', () => {
     const originalText = '12345678901';
     const encrypted = service.encrypt(originalText);
-    
+
     expect(encrypted).not.toContain(originalText);
   });
 
@@ -52,7 +52,7 @@ describe('CryptoService', () => {
     const text = 'test-string';
     const enc1 = service.encrypt(text);
     const enc2 = service.encrypt(text);
-    
+
     expect(enc1).not.toBe(enc2);
   });
 });

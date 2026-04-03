@@ -78,17 +78,20 @@ export class AuthGuard implements CanActivate {
     // Check Authorization header first (preferred for explicit API calls)
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     if (type === 'Bearer') {
-      if (isDev) console.debug('[AuthGuard] Token found in Authorization header');
+      if (isDev)
+        console.debug('[AuthGuard] Token found in Authorization header');
       return token;
     }
 
     // Check cookies as fallback
     if (request.cookies?.access_token) {
-      if (isDev) console.debug('[AuthGuard] Token found in access_token cookie');
+      if (isDev)
+        console.debug('[AuthGuard] Token found in access_token cookie');
       return request.cookies.access_token;
     }
 
-    if (isDev) console.debug('[AuthGuard] No token found in headers or cookies');
+    if (isDev)
+      console.debug('[AuthGuard] No token found in headers or cookies');
     return undefined;
   }
 }

@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, Matches, ValidateIf, Length } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  Matches,
+  ValidateIf,
+  Length,
+} from 'class-validator';
 
 export class SubmitIdentityDto {
   @IsString()
@@ -15,7 +21,8 @@ export class SubmitIdentityDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^\+254\d{9}$/, {
-    message: 'Kenyan phone number must be in +254xxxxxxxxx format (9 digits after code).',
+    message:
+      'Kenyan phone number must be in +254xxxxxxxxx format (9 digits after code).',
   })
   phoneNumber?: string;
 }

@@ -91,20 +91,23 @@ import { RatesModule } from './rates/rates.module';
                 },
                 // Global worker settings to reduce Redis command volume (~90% savings)
                 defaultJobOptions: {
-                  removeOnComplete: 100,
-                  removeOnFail: 50,
+                  removeOnComplete: 20,
+                  removeOnFail: 20,
                   attempts: 3,
                   backoff: {
                     type: 'exponential',
                     delay: 5000,
                   },
+                  ...(process.env.TESTNET_MODE === 'true'
+                    ? { skipStalledCheck: true, delay: 0 }
+                    : {}),
                 },
                 // Optimized worker defaults
                 workerOptions: {
                   concurrency: 1,
-                  stalledInterval: 60000,
-                  lockDuration: 60000,
-                  drainDelay: 30000,
+                  stalledInterval: 300000,
+                  lockDuration: 300000,
+                  drainDelay: 300000,
                 },
               };
             },

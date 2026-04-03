@@ -15,7 +15,6 @@ export class PaymentMethodsService {
     });
   }
 
-
   async addBank(
     userId: string,
     data: {
@@ -39,7 +38,7 @@ export class PaymentMethodsService {
         userId,
         type: PaymentMethodType.BANK_TRANSFER,
         accountName: data.accountName,
-        // For withdrawals, we need the full account number. 
+        // For withdrawals, we need the full account number.
         // We store it as provided, but also keep last4 for secure display.
         // * Disclaimer: Full account numbers are kept for manual and automated withdrawal flows only.
         accountNumber: data.accountNumber.replace(/\D/g, ''),
@@ -63,7 +62,9 @@ export class PaymentMethodsService {
     // Validate format: +254 followed by exactly 9 digits
     const mpesaRegex = /^\+254\d{9}$/;
     if (!mpesaRegex.test(data.phoneNumber)) {
-      throw new Error('Invalid M-Pesa number. Format must be +254 followed by 9 digits.');
+      throw new Error(
+        'Invalid M-Pesa number. Format must be +254 followed by 9 digits.',
+      );
     }
 
     if (data.isDefault) {

@@ -8,7 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { RespondInviteDto } from './dto/respond-invite.dto';
-import { InviteStatus, VaultStatus, UserRole } from '../domain/enums';
+import { InviteStatus, VaultStatus, UserRole, LedgerEntryType, TransactionStatus } from '../domain/enums';
 import * as crypto from 'crypto';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { ethers } from 'ethers';
@@ -217,6 +217,22 @@ export class InvitesService {
               freelancer: { select: { wallet: true } },
             },
           });
+
+          // If the vault is already funded, create a LOCK entry for the freelancer
+          if (vault.status === VaultStatus.FUNDED) {
+            await tx.ledgerEntry.create({
+              data: {
+                userId: userId,
+                vaultId: vault.id,
+                type: LedgerEntryType.LOCK,
+                amount: vault.totalAmount,
+                currency: vault.tokenSymbol || "USD",
+                status: TransactionStatus.CONFIRMED,
+                description: `Secured funds for project: ${vault.title}`,
+                completedAt: new Date(),
+              },
+            });
+          }
         }
 
         return {

@@ -8,9 +8,7 @@ export class PaycrestService {
   private readonly apiKey: string;
   private readonly apiSecret: string;
 
-  constructor(
-    private configService: ConfigService,
-  ) {
+  constructor(private configService: ConfigService) {
     this.baseUrl =
       this.configService.get<string>('PAYCREST_BASE_URL') ||
       'https://api.paycrest.io/v1';
@@ -89,7 +87,9 @@ export class PaycrestService {
     };
   }) {
     if (!params.bankDetails?.account_number) {
-      throw new BadRequestException('Bank account details are required for withdrawal');
+      throw new BadRequestException(
+        'Bank account details are required for withdrawal',
+      );
     }
 
     const recipient = {

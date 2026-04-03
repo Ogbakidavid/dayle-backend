@@ -4,12 +4,12 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { ethers } from 'ethers';
-import { 
-  UserRole, 
-  VaultStatus, 
-  DisputeStatus, 
-  LedgerEntryType, 
-  TransactionStatus 
+import {
+  UserRole,
+  VaultStatus,
+  DisputeStatus,
+  LedgerEntryType,
+  TransactionStatus,
 } from '../domain/enums';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -33,16 +33,16 @@ export class AdminService {
     });
     const totalVolume = await prisma.vault.aggregate({
       _sum: { totalAmount: true },
-      where: { 
-        status: { 
+      where: {
+        status: {
           in: [
-            VaultStatus.FUNDED, 
-            VaultStatus.RELEASED, 
-            VaultStatus.DISPUTED, 
+            VaultStatus.FUNDED,
+            VaultStatus.RELEASED,
+            VaultStatus.DISPUTED,
             VaultStatus.WITHDRAWAL_PENDING,
-            VaultStatus.REFUNDED
-          ] 
-        } 
+            VaultStatus.REFUNDED,
+          ],
+        },
       },
     });
 
@@ -52,9 +52,9 @@ export class AdminService {
 
     const platformRevenue = await prisma.ledgerEntry.aggregate({
       _sum: { amount: true },
-      where: { 
-        type: LedgerEntryType.FEE, 
-        status: TransactionStatus.CONFIRMED 
+      where: {
+        type: LedgerEntryType.FEE,
+        status: TransactionStatus.CONFIRMED,
       },
     });
 
@@ -87,26 +87,29 @@ export class AdminService {
     recentVolumes.forEach((entry) => {
       const month = entry.createdAt.toLocaleString('default', {
         month: 'short',
-        year: 'numeric'
+        year: 'numeric',
       });
-      // Match by month and year to ensure uniqueness over years if needed, 
+      // Match by month and year to ensure uniqueness over years if needed,
       // but the current trends logic uses month name only.
       // Keeping it simple for now as per original.
     });
-    
+
     // Re-doing the volumeTrends calculation to be correct
-    const trends: { month: string, volume: bigint }[] = [];
+    const trends: { month: string; volume: bigint }[] = [];
     for (let i = 5; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const monthName = d.toLocaleString('default', { month: 'short' });
-        let monthVolume = BigInt(0);
-        recentVolumes.forEach(v => {
-            if (v.createdAt.getMonth() === d.getMonth() && v.createdAt.getFullYear() === d.getFullYear()) {
-                monthVolume += v.amount;
-            }
-        });
-        trends.push({ month: monthName, volume: monthVolume });
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthName = d.toLocaleString('default', { month: 'short' });
+      let monthVolume = BigInt(0);
+      recentVolumes.forEach((v) => {
+        if (
+          v.createdAt.getMonth() === d.getMonth() &&
+          v.createdAt.getFullYear() === d.getFullYear()
+        ) {
+          monthVolume += v.amount;
+        }
+      });
+      trends.push({ month: monthName, volume: monthVolume });
     }
 
     // Dispute Load Metrics
@@ -146,7 +149,9 @@ export class AdminService {
 
     const avgResolutionTime30d =
       resolvedWithPhase2Count > 0
-        ? Math.round(totalResolutionTimeMs / resolvedWithPhase2Count / (1000 * 60 * 60)) // in hours
+        ? Math.round(
+            totalResolutionTimeMs / resolvedWithPhase2Count / (1000 * 60 * 60),
+          ) // in hours
         : 0;
 
     // Dispute Rate (last 30 days)
@@ -169,9 +174,15 @@ export class AdminService {
     return {
       totalUsers,
       activeVaults,
-      totalVolume: ethers.formatUnits(totalVolume._sum?.totalAmount || BigInt(0), 6),
+      totalVolume: ethers.formatUnits(
+        totalVolume._sum?.totalAmount || BigInt(0),
+        6,
+      ),
       pendingWithdrawals,
-      platformRevenue: ethers.formatUnits(platformRevenue._sum?.amount || BigInt(0), 6),
+      platformRevenue: ethers.formatUnits(
+        platformRevenue._sum?.amount || BigInt(0),
+        6,
+      ),
       pendingDisputes,
       activePhase2Disputes,
       avgResolutionTime30d,
@@ -320,25 +331,29 @@ export class AdminService {
 
   async getUsers(user: any) {
     const prisma = this.prisma;
-    return prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        kycStatus: true,
-        kycData: true,
-        country: true,
-        paymentAccountReady: true,
-        bvn: true,
-        createdAt: true,
-      },
-    }).then(users => users.map(user => ({
-      ...user,
-      bvn: user.bvn ? `${user.bvn.slice(0, 3)}-***-***` : null
-    })));
+    return prisma.user
+      .findMany({
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          kycStatus: true,
+          kycData: true,
+          country: true,
+          paymentAccountReady: true,
+          bvn: true,
+          createdAt: true,
+        },
+      })
+      .then((users) =>
+        users.map((user) => ({
+          ...user,
+          bvn: user.bvn ? `${user.bvn.slice(0, 3)}-***-***` : null,
+        })),
+      );
   }
 
   async getVaults(user: any) {
@@ -433,9 +448,9 @@ export class AdminService {
   async getRevenue(user: any) {
     const prisma = this.prisma;
     const entries = await prisma.ledgerEntry.findMany({
-      where: { 
+      where: {
         type: LedgerEntryType.FEE,
-        status: TransactionStatus.CONFIRMED 
+        status: TransactionStatus.CONFIRMED,
       },
       include: {
         vault: { select: { title: true, localCurrency: true } },

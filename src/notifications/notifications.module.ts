@@ -16,8 +16,8 @@ import { NotificationsGateway } from './notifications.gateway';
           BullModule.registerQueue({
             name: 'mail',
             defaultJobOptions: {
-              removeOnComplete: 100,
-              removeOnFail: 50,
+              removeOnComplete: 20,
+              removeOnFail: 20,
               attempts: 3,
               backoff: {
                 type: 'exponential',

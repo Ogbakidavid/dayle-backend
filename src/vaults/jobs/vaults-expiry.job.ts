@@ -33,7 +33,9 @@ export class VaultsExpiryJob {
         return;
       }
 
-      this.logger.log(`Found ${expiredVaults.length} expired vaults. Reverting to DRAFT...`);
+      this.logger.log(
+        `Found ${expiredVaults.length} expired vaults. Reverting to DRAFT...`,
+      );
 
       for (const vault of expiredVaults) {
         try {
@@ -61,12 +63,16 @@ export class VaultsExpiryJob {
 
           this.logger.log(`Vault ${vault.id} reverted to DRAFT due to expiry.`);
         } catch (error) {
-          this.logger.error(`Failed to revert vault ${vault.id} to DRAFT: ${error.message}`);
+          this.logger.error(
+            `Failed to revert vault ${vault.id} to DRAFT: ${error.message}`,
+          );
         }
       }
     } catch (err) {
       if (err.message.includes('EAI_AGAIN') || err.message.includes('P1001')) {
-        this.logger.warn('Vault Expiry Job: Database temporarily unreachable. Skipping this run.');
+        this.logger.warn(
+          'Vault Expiry Job: Database temporarily unreachable. Skipping this run.',
+        );
       } else {
         this.logger.error(`Vault Expiry Job Failed: ${err.message}`);
       }

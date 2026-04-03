@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,10 +54,12 @@ export class OnboardingService {
     const accountName = userId.replace(/-/g, '').toLowerCase();
 
     try {
-      this.logger.log(`[INITIALIZE PARTNA ACCOUNT] User ${userId}, accountName: ${accountName}`);
+      this.logger.log(
+        `[INITIALIZE PARTNA ACCOUNT] User ${userId}, accountName: ${accountName}`,
+      );
       // Create the Partna account/profile
       await this.partnaService.createAccount(accountName, user.email);
-      
+
       // Store the accountName as partnaCustomerId immediately
       const updatedUser = await this.prisma.user.update({
         where: { id: userId },
@@ -65,10 +68,16 @@ export class OnboardingService {
 
       return { success: true, partnaCustomerId: accountName };
     } catch (e) {
-      this.logger.error(`[PARTNA ACCOUNT INITIALIZATION FAILED] User ${userId}: ${e.message}`);
+      this.logger.error(
+        `[PARTNA ACCOUNT INITIALIZATION FAILED] User ${userId}: ${e.message}`,
+      );
       // Handle "already exists" elegantly - often returns 400 or has specific msg
       if (e.message.includes('exists')) {
-        return { success: true, partnaCustomerId: accountName, note: 'Already exists' };
+        return {
+          success: true,
+          partnaCustomerId: accountName,
+          note: 'Already exists',
+        };
       }
       throw e;
     }
@@ -96,15 +105,23 @@ export class OnboardingService {
 
     // Block unsupported countries early
     const supportedCountries = ['NG', 'KE', 'NGA', 'KEN'];
-    if (normalizedCountry && !supportedCountries.includes(normalizedCountry.toUpperCase())) {
+    if (
+      normalizedCountry &&
+      !supportedCountries.includes(normalizedCountry.toUpperCase())
+    ) {
       throw new BadRequestException({
         code: 'UNSUPPORTED_COUNTRY',
-        message: "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
+        message:
+          "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
       });
     }
 
     // Block changing country after KYC is initiated or verified
-    if (user.country && user.country !== normalizedCountry && user.kycStatus !== KycStatus.NONE) {
+    if (
+      user.country &&
+      user.country !== normalizedCountry &&
+      user.kycStatus !== KycStatus.NONE
+    ) {
       throw new BadRequestException({
         code: 'COUNTRY_LOCKED',
         message: 'Country cannot be changed after KYC is initiated.',
@@ -135,7 +152,9 @@ export class OnboardingService {
       return await this.verifyIdentity(userId, dto);
     } catch (e) {
       if (e.code === 'P2002') {
-        throw new BadRequestException('This BVN is already registered to another account.');
+        throw new BadRequestException(
+          'This BVN is already registered to another account.',
+        );
       }
       throw e;
     }
@@ -156,10 +175,14 @@ export class OnboardingService {
 
     // Restrict supported countries
     const supportedCountries = ['NG', 'KE', 'NGA', 'KEN'];
-    if (countryToUse && !supportedCountries.includes(countryToUse.toUpperCase())) {
+    if (
+      countryToUse &&
+      !supportedCountries.includes(countryToUse.toUpperCase())
+    ) {
       throw new BadRequestException({
         code: 'UNSUPPORTED_COUNTRY',
-        message: "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
+        message:
+          "Dayle is currently available in Nigeria and Kenya. We're expanding soon.",
       });
     }
 
@@ -293,7 +316,7 @@ export class OnboardingService {
     }
 
     const country = this.normalizeCountry(user.country || '');
-    // Using a prefix 'dy' (strictly alphanumeric) to ensure dayle-specific account names 
+    // Using a prefix 'dy' (strictly alphanumeric) to ensure dayle-specific account names
     const accountName = `dy${userId.replace(/-/g, '').toLowerCase()}`;
 
     if (country === 'NG') {
@@ -304,7 +327,9 @@ export class OnboardingService {
         try {
           bvnToUse = this.cryptoService.decrypt(user.bvn);
         } catch (e) {
-          throw new BadRequestException('Invalid stored BVN. Please enter it manually.');
+          throw new BadRequestException(
+            'Invalid stored BVN. Please enter it manually.',
+          );
         }
       }
 
@@ -314,57 +339,70 @@ export class OnboardingService {
         // 1. [PARTNA PROFILE CREATION & RECOVERY]
         let finalAccountName = accountName;
         try {
-            await this.partnaService.createAccount(finalAccountName, user.email);
+          await this.partnaService.createAccount(finalAccountName, user.email);
         } catch (e: any) {
-            if (e.message.includes('exists')) {
-                this.logger.warn(`[PARTNA COLLISION] Email ${user.email} already exists. Attempting recovery...`);
-                // RECOVERY: List accounts and find the one that matches this email
-                const accounts = await this.partnaService.getAccountDetails();
-                const existing = accounts.find((acc: any) => 
-                    (acc.email || '').toLowerCase() === user.email.toLowerCase()
-                );
-                
-                if (existing) {
-                    finalAccountName =
-                      (existing.externalRef ||
-                      existing.account_name ||
-                      existing.accountName) as string;
-                    this.logger.log(`[PARTNA RECOVERY] Successfully recovered accountName: ${finalAccountName} for ${user.email}`);
-                } else {
-                    this.logger.error(`[PARTNA RECOVERY FAILED] Collision reported but email ${user.email} not found in account list.`);
-                    throw new BadRequestException("This email is already registered on Partna under a different ID. Please use a fresh email address.");
-                }
+          if (e.message.includes('exists')) {
+            this.logger.warn(
+              `[PARTNA COLLISION] Email ${user.email} already exists. Attempting recovery...`,
+            );
+            // RECOVERY: List accounts and find the one that matches this email
+            const accounts = await this.partnaService.getAccountDetails();
+            const existing = accounts.find(
+              (acc: any) =>
+                (acc.email || '').toLowerCase() === user.email.toLowerCase(),
+            );
+
+            if (existing) {
+              finalAccountName = (existing.externalRef ||
+                existing.account_name ||
+                existing.accountName) as string;
+              this.logger.log(
+                `[PARTNA RECOVERY] Successfully recovered accountName: ${finalAccountName} for ${user.email}`,
+              );
             } else {
-                throw e;
+              this.logger.error(
+                `[PARTNA RECOVERY FAILED] Collision reported but email ${user.email} not found in account list.`,
+              );
+              throw new BadRequestException(
+                'This email is already registered on Partna under a different ID. Please use a fresh email address.',
+              );
             }
+          } else {
+            throw e;
+          }
         }
 
         // 2. [PARTNA BVN KYC]
         const kycRes = await this.partnaService.initiateKyc({
-            accountName: finalAccountName,
-            bvn: bvnToUse
+          accountName: finalAccountName,
+          bvn: bvnToUse,
         });
 
         // 3. [CHECK FOR OTP REQUIREMENT]
         // Partna v4 might return verification methods if OTP is needed
         if (kycRes.data?.methods) {
-            this.logger.log(`[PARTNA KYC] OTP required for user ${userId}. Methods: ${JSON.stringify(kycRes.data.methods)}`);
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    bvn: this.cryptoService.encrypt(bvnToUse),
-                    partnaCustomerId: finalAccountName,
-                }
-            });
-            return {
-                requiresOtp: true,
-                methods: kycRes.data.methods
-            };
+          this.logger.log(
+            `[PARTNA KYC] OTP required for user ${userId}. Methods: ${JSON.stringify(kycRes.data.methods)}`,
+          );
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              bvn: this.cryptoService.encrypt(bvnToUse),
+              partnaCustomerId: finalAccountName,
+            },
+          });
+          return {
+            requiresOtp: true,
+            methods: kycRes.data.methods,
+          };
         }
 
         // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
         // If no methods returned, assume KYC succeeded or is instant
-        const accountRes = await this.partnaService.createVirtualAccount(finalAccountName, 'NGN');
+        const accountRes = await this.partnaService.createVirtualAccount(
+          finalAccountName,
+          'NGN',
+        );
         const accountData = accountRes.data?.[0] || accountRes.data || {};
 
         // 5. Update user ONLY after all Partna steps succeed
@@ -374,27 +412,34 @@ export class OnboardingService {
             bvn: this.cryptoService.encrypt(bvnToUse),
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-PENDING',
+            partnaAccountRef:
+              (accountData as any).accountNumber ||
+              (accountData as any).id ||
+              'REF-PENDING',
           },
         });
 
         return this.sanitizeUser(updatedUser);
       } catch (e) {
-        this.logger.error(`[BVN VERIFICATION FAILED] User ${userId}: ${e.message}`);
+        this.logger.error(
+          `[BVN VERIFICATION FAILED] User ${userId}: ${e.message}`,
+        );
 
         // Handle Partna specific error: "maximum kyc lookup attempts reached"
         if (e.message.includes('maximum kyc lookup attempts reached')) {
           throw new BadRequestException({
             code: 'KYC_LOOKUP_LIMIT_REACHED',
-            message: "You've reached the maximum number of verification attempts. Please contact support via Slack to reset your account.",
+            message:
+              "You've reached the maximum number of verification attempts. Please contact support via Slack to reset your account.",
             originalError: e.message,
           });
         }
 
         if (e.message.includes('Account not found')) {
-            throw new BadRequestException(
-                e.message || "Partna account initialization failed. This often happens if your email is already registered with a different account on Partna."
-            );
+          throw new BadRequestException(
+            e.message ||
+              'Partna account initialization failed. This often happens if your email is already registered with a different account on Partna.',
+          );
         }
 
         throw new BadRequestException(
@@ -404,61 +449,66 @@ export class OnboardingService {
       }
     } else if (country === 'KE') {
       const phoneToUse = dto.phoneNumber || '';
-      if (!phoneToUse) throw new BadRequestException('Phone number is required');
+      if (!phoneToUse)
+        throw new BadRequestException('Phone number is required');
 
       try {
         // 1. [PARTNA PROFILE CREATION & RECOVERY]
         let finalAccountName = accountName;
         try {
-            await this.partnaService.createAccount(finalAccountName, user.email);
+          await this.partnaService.createAccount(finalAccountName, user.email);
         } catch (e: any) {
-            if (e.message.includes('exists')) {
-                const accounts = await this.partnaService.getAccountDetails();
-                const existing = accounts.find((acc: any) => 
-                    (acc.email || '').toLowerCase() === user.email.toLowerCase()
-                );
-                if (existing) {
-                    finalAccountName =
-                      (existing.externalRef ||
-                      existing.account_name ||
-                      existing.accountName) as string;
-                }
-            } else {
-                throw e;
+          if (e.message.includes('exists')) {
+            const accounts = await this.partnaService.getAccountDetails();
+            const existing = accounts.find(
+              (acc: any) =>
+                (acc.email || '').toLowerCase() === user.email.toLowerCase(),
+            );
+            if (existing) {
+              finalAccountName = (existing.externalRef ||
+                existing.account_name ||
+                existing.accountName) as string;
             }
+          } else {
+            throw e;
+          }
         }
 
         // 2. [PARTNA PHONE KYC]
         // Sanitize phone for Kenya: +254712345678 -> 0712345678 (10 digits)
         const sanitizedPhone = phoneToUse.replace('+254', '0');
-        
+
         const kycRes = await this.partnaService.initiateKyc({
-            accountName: finalAccountName,
-            kesMobileNetwork: 'MPESA',
-            kesShortcode: sanitizedPhone
+          accountName: finalAccountName,
+          kesMobileNetwork: 'MPESA',
+          kesShortcode: sanitizedPhone,
         });
 
         // 3. [CHECK FOR OTP REQUIREMENT]
         if (kycRes.data?.methods) {
-            await this.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    phoneNumber: phoneToUse,
-                    partnaCustomerId: finalAccountName,
-                }
-            });
-            return {
-                requiresOtp: true,
-                methods: kycRes.data.methods
-            };
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              phoneNumber: phoneToUse,
+              partnaCustomerId: finalAccountName,
+            },
+          });
+          return {
+            requiresOtp: true,
+            methods: kycRes.data.methods,
+          };
         }
 
         // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
         // Create KES virtual account
-        const accountRes = await this.partnaService.createVirtualAccount(finalAccountName, 'KES').catch(err => {
-            this.logger.warn(`[KE VIRTUAL ACCOUNT FAILED] ${err.message}. This might be expected if KES accounts are manual.`);
+        const accountRes = await this.partnaService
+          .createVirtualAccount(finalAccountName, 'KES')
+          .catch((err) => {
+            this.logger.warn(
+              `[KE VIRTUAL ACCOUNT FAILED] ${err.message}. This might be expected if KES accounts are manual.`,
+            );
             return { data: [] };
-        });
+          });
         const accountData = accountRes.data?.[0] || accountRes.data || {};
 
         const updatedUser = await this.prisma.user.update({
@@ -467,28 +517,40 @@ export class OnboardingService {
             phoneNumber: phoneToUse,
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-KE-PENDING',
+            partnaAccountRef:
+              (accountData as any).accountNumber ||
+              (accountData as any).id ||
+              'REF-KE-PENDING',
           },
         });
         return this.sanitizeUser(updatedUser);
       } catch (err) {
-        this.logger.error(`[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`);
+        this.logger.error(
+          `[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`,
+        );
         throw new BadRequestException(
           "We couldn't set up your payment account. Please check your phone number and try again.",
         );
       }
     }
 
-    throw new BadRequestException('Unsupported country for identity verification.');
+    throw new BadRequestException(
+      'Unsupported country for identity verification.',
+    );
   }
 
   async selectKycMethod(userId: string, method: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+    if (!user || !user.partnaCustomerId)
+      throw new BadRequestException('KYC session not started');
 
     const currency = user.country === 'KE' ? 'KES' : 'NGN';
     try {
-      return await this.partnaService.selectKycMethod(user.partnaCustomerId, method, currency);
+      return await this.partnaService.selectKycMethod(
+        user.partnaCustomerId,
+        method,
+        currency,
+      );
     } catch (err: any) {
       this.logger.error(`[KYC METHOD ERROR] ${err.message}`);
       throw new BadRequestException(err.message);
@@ -497,22 +559,31 @@ export class OnboardingService {
 
   async verifyKycOtp(userId: string, otp: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+    if (!user || !user.partnaCustomerId)
+      throw new BadRequestException('KYC session not started');
 
     // 1. Verify OTP with Partna
     const currency = user.country === 'KE' ? 'KES' : 'NGN';
     try {
-      await this.partnaService.verifyKycOtp(user.partnaCustomerId, otp, currency);
+      await this.partnaService.verifyKycOtp(
+        user.partnaCustomerId,
+        otp,
+        currency,
+      );
     } catch (err: any) {
       this.logger.error(`[KYC OTP ERROR] ${err.message}`);
       throw new BadRequestException(err.message);
     }
 
     // 2. Step 6: Create Virtual Account after successful verification (using PUT /v4/account)
-    const accountRes = await this.partnaService.createVirtualAccount(user.partnaCustomerId, currency).catch(err => {
+    const accountRes = await this.partnaService
+      .createVirtualAccount(user.partnaCustomerId, currency)
+      .catch((err) => {
         this.logger.error(`[STEP 6 VIRTUAL ACCOUNT FAILED] ${err.message}`);
-        throw new BadRequestException(`KYC verified but virtual account creation failed: ${err.message}`);
-    });
+        throw new BadRequestException(
+          `KYC verified but virtual account creation failed: ${err.message}`,
+        );
+      });
 
     // 3. Mark user as ready and store reference
     const accountData = accountRes.data?.[0] || accountRes.data || {};
@@ -520,7 +591,10 @@ export class OnboardingService {
       where: { id: userId },
       data: {
         paymentAccountReady: true,
-        partnaAccountRef: (accountData as any).accountNumber || (accountData as any).id || 'REF-POST-OTP',
+        partnaAccountRef:
+          (accountData as any).accountNumber ||
+          (accountData as any).id ||
+          'REF-POST-OTP',
       },
     });
 
@@ -528,10 +602,14 @@ export class OnboardingService {
   }
   async confirmKycPhone(userId: string, phone: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.partnaCustomerId) throw new BadRequestException('KYC session not started');
+    if (!user || !user.partnaCustomerId)
+      throw new BadRequestException('KYC session not started');
 
     try {
-      return await this.partnaService.confirmPhone(user.partnaCustomerId, phone);
+      return await this.partnaService.confirmPhone(
+        user.partnaCustomerId,
+        phone,
+      );
     } catch (err: any) {
       this.logger.error(`[KYC PHONE CONFIRM ERROR] ${err.message}`);
       throw new BadRequestException(err.message);
@@ -540,8 +618,10 @@ export class OnboardingService {
 
   // DEV ONLY - Remove before production deployment
   async devBypassIdentity(userId: string) {
-    if (process.env.NODE_ENV !== 'development') {
-      throw new BadRequestException('Bypass only available in development mode');
+    if (process.env.ENABLE_DEV_BYPASS !== 'true') {
+      throw new ForbiddenException(
+        'Identity bypass is not available in this environment',
+      );
     }
 
     const updatedUser = await this.prisma.user.update({
@@ -553,7 +633,10 @@ export class OnboardingService {
       },
     });
 
-    return { message: 'Development bypass applied', user: this.sanitizeUser(updatedUser) };
+    return {
+      message: 'Development bypass applied',
+      user: this.sanitizeUser(updatedUser),
+    };
   }
 
   private normalizeCountry(c: string): string {
@@ -567,7 +650,7 @@ export class OnboardingService {
   private sanitizeUser(user: any) {
     if (!user) return null;
     const { passwordHash, updatedAt, bvn, ...result } = user;
-    
+
     if (bvn) {
       try {
         const decryptedBvn = this.cryptoService.decrypt(bvn);
@@ -576,7 +659,7 @@ export class OnboardingService {
         result.bvn = '*******XXXX';
       }
     }
-    
+
     return result;
   }
 }

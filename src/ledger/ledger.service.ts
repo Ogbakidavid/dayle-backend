@@ -33,13 +33,14 @@ export class LedgerService {
     const isClient = role.toUpperCase() === 'CLIENT';
 
     const available = entries.reduce((sum, entry) => {
-      // For Clients, DEPOSIT (funding vault) and FEE should NOT be in available balance
-      // These represent committed capital, not liquid funds in the virtual ledger.
       if (
         isClient &&
         (entry.type === LedgerEntryType.DEPOSIT ||
           entry.type === LedgerEntryType.FEE)
       ) {
+        return sum;
+      }
+      if (!isClient && entry.type === LedgerEntryType.LOCK) {
         return sum;
       }
       return sum + entry.amount;
@@ -48,14 +49,25 @@ export class LedgerService {
     const pendingEntries = await prisma.ledgerEntry.findMany({
       where: {
         userId,
-        status: TransactionStatus.PENDING,
+        status: { in: [TransactionStatus.PENDING, TransactionStatus.CONFIRMED] },
       },
     });
 
-    const pending = pendingEntries.reduce(
-      (sum, entry) => sum + entry.amount,
-      BigInt(0),
-    );
+    const pending = pendingEntries.reduce((sum, entry) => {
+      // For Clients, DEPOSIT (vault fund) shows as pending while the vault itself is AWAITING_PAYMENT
+      // For Freelancers, LOCK entries are "Pending Settlement" until released.
+      if (
+        (isClient && entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) ||
+        (!isClient && entry.type === LedgerEntryType.LOCK)
+      ) {
+        return sum + (entry.amount < 0 ? -entry.amount : entry.amount);
+      }
+      // Traditional withdrawal pending logic
+      if (entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.WITHDRAW || entry.type === LedgerEntryType.FEE)) {
+         return sum + (entry.amount < 0 ? -entry.amount : entry.amount);
+      }
+      return sum;
+    }, BigInt(0));
 
     return {
       available: available.toString(),
@@ -118,7 +130,10 @@ export class LedgerService {
     // Stablecoins (cUSD, USDC, USDT) use 6 decimals; this must be consistent with
     // getBalance() which also formats to 6 decimals. Do NOT use 18 here.
     const DECIMALS = 6;
-    const withdrawAmountBigInt = ethers.parseUnits(dto.amount.toString(), DECIMALS);
+    const withdrawAmountBigInt = ethers.parseUnits(
+      dto.amount.toString(),
+      DECIMALS,
+    );
 
     if (BigInt(balance.available) < withdrawAmountBigInt) {
       throw new BadRequestException({
@@ -134,15 +149,21 @@ export class LedgerService {
       // Fee calculation
       const PROVIDER_FEE_PERCENT = 0.01; // 1.0% (Partna)
       const APP_FEE_PERCENT = 0.005; // 0.5% (Dayle)
-      
+
       const providerFee = dto.amount * PROVIDER_FEE_PERCENT;
       const appFee = dto.amount * APP_FEE_PERCENT;
       const totalFees = providerFee + appFee;
       const netAmount = dto.amount - totalFees;
 
       // BigInt conversions for ledger — use same DECIMALS for consistency
-      const appFeeBigInt = ethers.parseUnits(appFee.toFixed(DECIMALS), DECIMALS);
-      const netAmountBigInt = ethers.parseUnits(netAmount.toFixed(DECIMALS), DECIMALS);
+      const appFeeBigInt = ethers.parseUnits(
+        appFee.toFixed(DECIMALS),
+        DECIMALS,
+      );
+      const netAmountBigInt = ethers.parseUnits(
+        netAmount.toFixed(DECIMALS),
+        DECIMALS,
+      );
 
       // 4a. Create gross withdrawal entry
       const entry = await tx.ledgerEntry.create({

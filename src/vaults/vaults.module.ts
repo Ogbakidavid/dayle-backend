@@ -24,8 +24,8 @@ import { AuthModule } from '../auth/auth.module';
           BullModule.registerQueue({
             name: 'withdrawal-retry',
             defaultJobOptions: {
-              removeOnComplete: 100,
-              removeOnFail: 50,
+              removeOnComplete: 20,
+              removeOnFail: 20,
               attempts: 3,
               backoff: {
                 type: 'exponential',
@@ -39,8 +39,11 @@ import { AuthModule } from '../auth/auth.module';
   controllers: [VaultsController],
   providers: [
     VaultsService,
-    VaultsExpiryJob,
-    PaycrestMonitoringJob,
+    // Only run monitoring jobs in production (not testnet)
+    ...(process.env.TESTNET_MODE !== 'true' &&
+    process.env.NODE_ENV === 'production'
+      ? [VaultsExpiryJob, PaycrestMonitoringJob]
+      : []),
     ...(process.env.ENABLE_BULL !== 'false' ? [WithdrawalRetryProcessor] : []),
   ],
   exports: [VaultsService],

@@ -1,4 +1,12 @@
-import { Controller, Post, Get, Body, Query, Param, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  Param,
+  ForbiddenException,
+} from '@nestjs/common';
 import { DisputesService } from './disputes.service';
 import { DisputeAiService } from './dispute-ai.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
@@ -109,10 +117,7 @@ export class DisputesController {
   }
 
   @Post(':id/accept-settlement')
-  async acceptSettlement(
-    @Param('id') id: string,
-    @User('id') userId: string,
-  ) {
+  async acceptSettlement(@Param('id') id: string, @User('id') userId: string) {
     return this.disputesService.acceptSettlement(id, userId);
   }
 

@@ -27,18 +27,27 @@ export class RatesController {
   ) {
     const usdAmount = parseFloat(amount);
     if (isNaN(usdAmount)) throw new BadRequestException('Invalid amount');
-    if (!vaultId) throw new BadRequestException('Vault ID is required for transactions');
+    if (!vaultId)
+      throw new BadRequestException('Vault ID is required for transactions');
     if (!['funding', 'withdrawal'].includes(type)) {
       throw new BadRequestException('Invalid transaction type');
     }
 
-    const rateResult = await this.ratesService.getTransactionRate(currency, usdAmount, vaultId, type);
-    
+    const rateResult = await this.ratesService.getTransactionRate(
+      currency,
+      usdAmount,
+      vaultId,
+      type,
+    );
+
     return {
       currency: currency.toUpperCase(),
       usdAmount,
       rate: rateResult.rate,
-      convertedAmount: type === 'funding' ? usdAmount / rateResult.rate : usdAmount * rateResult.rate,
+      convertedAmount:
+        type === 'funding'
+          ? usdAmount / rateResult.rate
+          : usdAmount * rateResult.rate,
       vaultId,
       type,
       timestamp: new Date().toISOString(),

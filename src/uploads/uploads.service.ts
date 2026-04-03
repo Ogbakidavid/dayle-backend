@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { GetPresignedUrlDto } from './dto/get-presigned-url.dto';
 import { randomUUID } from 'crypto';
@@ -32,8 +36,12 @@ export class UploadsService {
     const command = new PutObjectCommand({
       Bucket: this.bucketName,
       Key: key,
-      ContentType: fileType,
+      ContentType: fileType || 'application/octet-stream',
     });
+
+    console.log(
+      `[UploadsService] Generating presigned URL for key: ${key}, Type: ${fileType}`,
+    );
 
     // Valid for 5 minutes (300 seconds)
     const uploadUrl = await getSignedUrl(this.s3Client as any, command as any, {

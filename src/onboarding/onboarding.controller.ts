@@ -1,4 +1,12 @@
-import { Controller, Post, Patch, Get, Body, Logger, Req } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Patch,
+  Get,
+  Body,
+  Logger,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { OnboardingService } from './onboarding.service';
 import { SetRoleDto } from './dto/set-role.dto';
@@ -17,7 +25,10 @@ export class OnboardingController {
   }
 
   @Post('identity')
-  async submitIdentity(@User('id') userId: string, @Body() dto: SubmitIdentityDto) {
+  async submitIdentity(
+    @User('id') userId: string,
+    @Body() dto: SubmitIdentityDto,
+  ) {
     return this.onboardingService.submitIdentity(userId, dto);
   }
 
@@ -27,7 +38,10 @@ export class OnboardingController {
   }
 
   @Post('verify-identity')
-  async verifyIdentity(@User('id') userId: string, @Body() dto: SubmitIdentityDto) {
+  async verifyIdentity(
+    @User('id') userId: string,
+    @Body() dto: SubmitIdentityDto,
+  ) {
     return this.onboardingService.verifyIdentity(userId, dto);
   }
 
@@ -37,7 +51,10 @@ export class OnboardingController {
   }
 
   @Post('kyc-method')
-  async selectKycMethod(@User('id') userId: string, @Body('method') method: string) {
+  async selectKycMethod(
+    @User('id') userId: string,
+    @Body('method') method: string,
+  ) {
     return this.onboardingService.selectKycMethod(userId, method);
   }
 
@@ -47,7 +64,10 @@ export class OnboardingController {
   }
 
   @Post('kyc-confirm-phone')
-  async confirmKycPhone(@User('id') userId: string, @Body('phone') phone: string) {
+  async confirmKycPhone(
+    @User('id') userId: string,
+    @Body('phone') phone: string,
+  ) {
     return this.onboardingService.confirmKycPhone(userId, phone);
   }
 
@@ -64,8 +84,12 @@ export class OnboardingController {
   // DEV ONLY - Remove before production deployment
   @Post('dev-bypass-identity')
   async devBypassIdentity(@User('id') userId: string, @Req() req: Request) {
-    this.logger.log('[DEV BYPASS] Request received, NODE_ENV: ' + process.env.NODE_ENV);
-    this.logger.log('[DEV BYPASS] Auth header present: ' + !!req.headers.authorization);
+    this.logger.log(
+      '[DEV BYPASS] Request received, NODE_ENV: ' + process.env.NODE_ENV,
+    );
+    this.logger.log(
+      '[DEV BYPASS] Auth header present: ' + !!req.headers.authorization,
+    );
     return this.onboardingService.devBypassIdentity(userId);
   }
 }

@@ -73,13 +73,9 @@ export class BlockchainService implements OnModuleInit {
       const request = new ethers.FetchRequest(rpcUrl);
       request.timeout = 15000; // 15s timeout for slow RPCs
 
-      this.provider = new ethers.JsonRpcProvider(
-        request,
-        network,
-        {
-          staticNetwork: true,
-        },
-      );
+      this.provider = new ethers.JsonRpcProvider(request, network, {
+        staticNetwork: true,
+      });
       this.provider.pollingInterval = 4000;
       this.usingWebSocket = false;
     }
@@ -167,8 +163,11 @@ export class BlockchainService implements OnModuleInit {
             break; // Success!
           } catch (e) {
             attempts++;
-            const isPrismaError = e.message?.includes('prisma') || e.code?.startsWith('P');
-            const errorLabel = isPrismaError ? 'Database (Prisma)' : 'Blockchain Provider';
+            const isPrismaError =
+              e.message?.includes('prisma') || e.code?.startsWith('P');
+            const errorLabel = isPrismaError
+              ? 'Database (Prisma)'
+              : 'Blockchain Provider';
 
             if (attempts >= maxAttempts) {
               this.logger.error(

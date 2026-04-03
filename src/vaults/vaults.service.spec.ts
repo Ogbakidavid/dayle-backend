@@ -73,7 +73,10 @@ describe('VaultsService', () => {
         },
         {
           provide: RatesService,
-          useValue: { getDisplayRate: jest.fn(), getTransactionRate: jest.fn() },
+          useValue: {
+            getDisplayRate: jest.fn(),
+            getTransactionRate: jest.fn(),
+          },
         },
         {
           provide: PartnaService,

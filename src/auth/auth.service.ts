@@ -26,16 +26,21 @@ export class AuthService {
     try {
       verifiedClaims = await this.privyService.verifyToken(accessToken);
     } catch (error) {
-      console.error('[privyLogin] Token verification failed:', error.message || error);
-      
+      console.error(
+        '[privyLogin] Token verification failed:',
+        error.message || error,
+      );
+
       // Attempt to decode for debugging info (without verification)
       try {
         const decoded = decodeJwt(accessToken);
-        console.log(`[privyLogin] Failed token metadata - aud: ${decoded.aud}, iss: ${decoded.iss}, sub: ${decoded.sub}`);
+        console.log(
+          `[privyLogin] Failed token metadata - aud: ${decoded.aud}, iss: ${decoded.iss}, sub: ${decoded.sub}`,
+        );
       } catch (e) {
         console.warn('[privyLogin] Could not even decode token for debugging');
       }
-      
+
       throw new UnauthorizedException('Invalid auth token');
     }
 
@@ -349,10 +354,12 @@ export class AuthService {
 
     if (dto.country) {
       const c = dto.country.toUpperCase();
-      data.country = 
-        c === "NIGERIA" || c === "NGA" ? "NG" : 
-        c === "KENYA" || c === "KEN" ? "KE" : 
-        c;
+      data.country =
+        c === 'NIGERIA' || c === 'NGA'
+          ? 'NG'
+          : c === 'KENYA' || c === 'KEN'
+            ? 'KE'
+            : c;
     }
 
     const user = await this.prisma.user.update({

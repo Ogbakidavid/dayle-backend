@@ -68,7 +68,8 @@ export class DisputesService {
       include: { vault: true },
     });
 
-    const msg = "The mutual resolution window has closed. Your dispute is now under platform review.";
+    const msg =
+      'The mutual resolution window has closed. Your dispute is now under platform review.';
     await this.notificationsService.createNotification(dispute.vault.clientId, {
       type: 'dispute',
       title: 'Dispute Escalated',
@@ -76,12 +77,15 @@ export class DisputesService {
       action: `/client/dispute/${id}`,
     });
     if (dispute.vault.freelancerId) {
-      await this.notificationsService.createNotification(dispute.vault.freelancerId, {
-        type: 'dispute',
-        title: 'Dispute Escalated',
-        message: msg,
-        action: `/freelancer/dispute/${id}`,
-      });
+      await this.notificationsService.createNotification(
+        dispute.vault.freelancerId,
+        {
+          type: 'dispute',
+          title: 'Dispute Escalated',
+          message: msg,
+          action: `/freelancer/dispute/${id}`,
+        },
+      );
     }
   }
 
@@ -102,7 +106,9 @@ export class DisputesService {
     // Tier 2 KYC Enforcement for Disputes
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException('Full identity verification (Didit) is required to initiate a dispute.');
+      throw new BadRequestException(
+        'Full identity verification (Didit) is required to initiate a dispute.',
+      );
     }
 
     if (vault.status === VaultStatus.RELEASED) {
@@ -424,20 +430,22 @@ export class DisputesService {
 
         // Use tiered fee logic
         const vaultAmountUSD = parseFloat(
-          ethers.formatUnits(
-            vaultAmountBigInt || BigInt(0),
-            decimals,
-          ),
+          ethers.formatUnits(vaultAmountBigInt || BigInt(0), decimals),
         );
         const fees = calculateDayleFee(vaultAmountUSD);
-        
-        const treasuryAmountBigInt = (vaultAmountBigInt * BigInt(fees.totalFeeBasisPoints)) / 10000n;
-        
+
+        const treasuryAmountBigInt =
+          (vaultAmountBigInt * BigInt(fees.totalFeeBasisPoints)) / 10000n;
+
         const availableForSplit = vaultAmountBigInt - treasuryAmountBigInt;
-        
+
         // Ensure freelancer split doesn't exceed available after fee
-        const freelancerAmountBigInt = splitAmountBigInt > availableForSplit ? availableForSplit : splitAmountBigInt;
-        const clientAmountBigInt = vaultAmountBigInt - freelancerAmountBigInt - treasuryAmountBigInt;
+        const freelancerAmountBigInt =
+          splitAmountBigInt > availableForSplit
+            ? availableForSplit
+            : splitAmountBigInt;
+        const clientAmountBigInt =
+          vaultAmountBigInt - freelancerAmountBigInt - treasuryAmountBigInt;
 
         // Release splitAmount to freelancer
         await tx.ledgerEntry.create({
@@ -537,16 +545,22 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
     if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
-      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+      throw new BadRequestException(
+        'Can only propose settlement during mutual resolution phase',
+      );
     }
 
-    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
     // Tier 2 KYC Enforcement
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException('Full identity verification (Didit) is required to propose a settlement.');
+      throw new BadRequestException(
+        'Full identity verification (Didit) is required to propose a settlement.',
+      );
     }
 
     const updatedDispute = await prisma.$transaction(async (tx) => {
@@ -554,25 +568,32 @@ export class DisputesService {
       const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
       if (elapsed >= 96 * 60 * 60 * 1000) {
         await this.escalateToPhase2(id, tx);
-        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+        throw new BadRequestException(
+          'The mutual resolution window has closed. Your dispute is now under platform review.',
+        );
       }
 
       // Split Validation (10% - 90%)
       const decimals = (dispute.vault as any).tokenDecimals || 18;
       const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
-      
+
       // Calculate 10% and 90% boundaries accurately using BigInt
       const tenPercentLimit = vaultAmountBigInt / 10n;
       const ninetyPercentLimit = (vaultAmountBigInt * 9n) / 10n;
-      
+
       // Convert proposed amount to BigInt for comparison
       const proposedBigInt = ethers.parseUnits(
         dto.amountToFreelancer.toString(),
         decimals,
       );
 
-      if (proposedBigInt < tenPercentLimit || proposedBigInt > ninetyPercentLimit) {
-        throw new BadRequestException("For full refund or full release, please use the dedicated buttons.");
+      if (
+        proposedBigInt < tenPercentLimit ||
+        proposedBigInt > ninetyPercentLimit
+      ) {
+        throw new BadRequestException(
+          'For full refund or full release, please use the dedicated buttons.',
+        );
       }
 
       // 2. Reset Timer
@@ -596,8 +617,11 @@ export class DisputesService {
       });
 
       // 4. Send Notifications
-      const msg = "New offer received — the 48-hour window has been reset.";
-      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      const msg = 'New offer received — the 48-hour window has been reset.';
+      const otherPartyId =
+        userId === dispute.vault.clientId
+          ? dispute.vault.freelancerId
+          : dispute.vault.clientId;
       if (otherPartyId) {
         await this.notificationsService.createNotification(otherPartyId, {
           type: 'dispute',
@@ -622,16 +646,22 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
     if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
-      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+      throw new BadRequestException(
+        'Can only propose settlement during mutual resolution phase',
+      );
     }
 
-    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
     // Tier 2 KYC Enforcement
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException('Full identity verification (Didit) is required to request a refund.');
+      throw new BadRequestException(
+        'Full identity verification (Didit) is required to request a refund.',
+      );
     }
 
     return await prisma.$transaction(async (tx) => {
@@ -639,7 +669,9 @@ export class DisputesService {
       const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
       if (elapsed >= 96 * 60 * 60 * 1000) {
         await this.escalateToPhase2(id, tx);
-        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+        throw new BadRequestException(
+          'The mutual resolution window has closed. Your dispute is now under platform review.',
+        );
       }
 
       // 2. Reset Timer
@@ -660,8 +692,11 @@ export class DisputesService {
       });
 
       // 4. Notifications
-      const msg = "New offer received — the 48-hour window has been reset.";
-      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      const msg = 'New offer received — the 48-hour window has been reset.';
+      const otherPartyId =
+        userId === dispute.vault.clientId
+          ? dispute.vault.freelancerId
+          : dispute.vault.clientId;
       if (otherPartyId) {
         await this.notificationsService.createNotification(otherPartyId, {
           type: 'dispute',
@@ -684,16 +719,22 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
     if ((dispute.status as any) !== DisputeStatus.MUTUAL_RESOLUTION) {
-      throw new BadRequestException('Can only propose settlement during mutual resolution phase');
+      throw new BadRequestException(
+        'Can only propose settlement during mutual resolution phase',
+      );
     }
 
-    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
     // Tier 2 KYC Enforcement
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException('Full identity verification (Didit) is required to request a release.');
+      throw new BadRequestException(
+        'Full identity verification (Didit) is required to request a release.',
+      );
     }
 
     return await prisma.$transaction(async (tx) => {
@@ -701,7 +742,9 @@ export class DisputesService {
       const elapsed = Date.now() - new Date(dispute.createdAt).getTime();
       if (elapsed >= 96 * 60 * 60 * 1000) {
         await this.escalateToPhase2(id, tx);
-        throw new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review.");
+        throw new BadRequestException(
+          'The mutual resolution window has closed. Your dispute is now under platform review.',
+        );
       }
 
       // 2. Reset Timer
@@ -722,8 +765,11 @@ export class DisputesService {
       });
 
       // 4. Notifications
-      const msg = "New offer received — the 48-hour window has been reset.";
-      const otherPartyId = userId === dispute.vault.clientId ? dispute.vault.freelancerId : dispute.vault.clientId;
+      const msg = 'New offer received — the 48-hour window has been reset.';
+      const otherPartyId =
+        userId === dispute.vault.clientId
+          ? dispute.vault.freelancerId
+          : dispute.vault.clientId;
       if (otherPartyId) {
         await this.notificationsService.createNotification(otherPartyId, {
           type: 'dispute',
@@ -753,20 +799,25 @@ export class DisputesService {
     const lastProposal = dispute.events.find(
       (e) => e.eventType === 'SETTLEMENT_PROPOSED',
     );
-    if (!lastProposal) throw new BadRequestException('No settlement proposal found');
+    if (!lastProposal)
+      throw new BadRequestException('No settlement proposal found');
 
     const proposalActorId = lastProposal.actorId;
     if (proposalActorId === userId) {
       throw new BadRequestException('You cannot accept your own proposal');
     }
 
-    const isParticipant = dispute.vault.clientId === userId || dispute.vault.freelancerId === userId;
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
     if (!isParticipant) throw new ForbiddenException('Not authorized');
 
     // Tier 2 KYC Enforcement
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.kycStatus !== KycStatus.VERIFIED) {
-      throw new BadRequestException('Full identity verification (Didit) is required to accept a settlement.');
+      throw new BadRequestException(
+        'Full identity verification (Didit) is required to accept a settlement.',
+      );
     }
 
     const { amountToFreelancer, notes } = lastProposal.payload as any;
@@ -781,8 +832,13 @@ export class DisputesService {
       decimals,
     );
 
-    if (proposedBigInt < tenPercentLimit || proposedBigInt > ninetyPercentLimit) {
-      throw new BadRequestException("For full refund or full release, please use the dedicated buttons.");
+    if (
+      proposedBigInt < tenPercentLimit ||
+      proposedBigInt > ninetyPercentLimit
+    ) {
+      throw new BadRequestException(
+        'For full refund or full release, please use the dedicated buttons.',
+      );
     }
 
     // Trigger resolve logic but as participants

@@ -37,7 +37,6 @@ export class PaymentMethodsController {
     return this.paymentMethodsService.listByUser(req.user.id);
   }
 
-
   @Post('bank')
   async addBank(@Req() req, @Body() body: any) {
     return this.paymentMethodsService.addBank(req.user.id, body);
@@ -56,7 +55,7 @@ export class PaymentMethodsController {
   @Get('banks')
   async getBanks(@Query('currency') currency?: string) {
     const curr = (currency || 'NGN').toUpperCase();
-    
+
     if (!['NGN', 'KES'].includes(curr)) {
       throw new BadRequestException(`Currency ${curr} is not supported.`);
     }
@@ -118,7 +117,11 @@ export class PaymentMethodsController {
     finalBanks.sort((a, b) => a.name.localeCompare(b.name));
 
     try {
-      await this.redisService.set(cacheKey, JSON.stringify(finalBanks), 24 * 60 * 60);
+      await this.redisService.set(
+        cacheKey,
+        JSON.stringify(finalBanks),
+        24 * 60 * 60,
+      );
     } catch (e) {
       this.logger.warn(`Redis cache set failed: ${e.message}`);
     }
@@ -128,10 +131,15 @@ export class PaymentMethodsController {
 
   @Post('resolve-bank')
   async resolveBank(
-    @Body() body: { bankCode: string; accountNumber: string; currency?: string },
+    @Body()
+    body: {
+      bankCode: string;
+      accountNumber: string;
+      currency?: string;
+    },
   ) {
     const curr = (body.currency || 'NGN').toUpperCase();
-    
+
     if (!['NGN', 'KES'].includes(curr)) {
       throw new BadRequestException(`Currency ${curr} is not supported.`);
     }
@@ -146,7 +154,9 @@ export class PaymentMethodsController {
         );
         if (paycrestRes) return paycrestRes;
       } catch (e) {
-        this.logger.warn(`Paycrest resolve failed: ${e.message}, trying Partna fallback`);
+        this.logger.warn(
+          `Paycrest resolve failed: ${e.message}, trying Partna fallback`,
+        );
       }
 
       // 2. Try Partna as fallback

@@ -32,7 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message = resp.message || exception.message;
         details = resp.details;
       } else {
-        message = exceptionResponse as string;
+        message = exceptionResponse;
       }
     } else if (exception && (exception as any).status) {
       // Fallback for cases where instanceof fails but it looks like an HttpException
@@ -67,10 +67,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     };
 
     if (exception instanceof HttpException) {
-        const exceptionResponse = exception.getResponse();
-        if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-            Object.assign(responseBody, exceptionResponse);
-        }
+      const exceptionResponse = exception.getResponse();
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        Object.assign(responseBody, exceptionResponse);
+      }
     }
 
     response.status(status).json(responseBody);

@@ -70,7 +70,7 @@ describe('DisputesService Adjudication', () => {
 
     service = module.get<DisputesService>(DisputesService);
     prisma = module.get<PrismaService>(PrismaService);
-    
+
     // Reset mocks
     jest.clearAllMocks();
   });
@@ -138,7 +138,7 @@ describe('DisputesService Adjudication', () => {
     });
   });
 
-    it('should resolve dispute with SPLIT outcome', async () => {
+  it('should resolve dispute with SPLIT outcome', async () => {
     mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
     mockPrisma.user.findUnique.mockResolvedValue(mockAdmin);
 
@@ -156,7 +156,8 @@ describe('DisputesService Adjudication', () => {
         type: LedgerEntryType.RELEASE,
         userId: 'freelancer-1',
         amount: 400000000000000000000n,
-        description: 'Dispute Resolution SPLIT (Release): Partial work completed',
+        description:
+          'Dispute Resolution SPLIT (Release): Partial work completed',
         disputeId: 'dispute-1',
         status: TransactionStatus.CONFIRMED,
         vaultId: 'vault-1',
@@ -169,7 +170,8 @@ describe('DisputesService Adjudication', () => {
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
         amount: 560000000000000000000n,
-        description: 'Dispute Resolution SPLIT (Refund): Partial work completed',
+        description:
+          'Dispute Resolution SPLIT (Refund): Partial work completed',
         disputeId: 'dispute-1',
         status: TransactionStatus.CONFIRMED,
         vaultId: 'vault-1',

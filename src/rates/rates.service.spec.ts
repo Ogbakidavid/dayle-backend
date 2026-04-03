@@ -50,14 +50,14 @@ describe('RatesService', () => {
       (partna.getRate as jest.Mock).mockResolvedValue({
         data: {
           rate: {
-            NGN_to_USDC: { rate: 1500, key: 'rk-123' }
-          }
-        }
+            NGN_to_USDC: { rate: 1500, key: 'rk-123' },
+          },
+        },
       });
-      
+
       const res1 = await service.getDisplayRate('NGN', 100);
       expect(res1.rate).toBe(1500);
-      
+
       // Second call should be cached
       const res2 = await service.getDisplayRate('NGN', 100);
       expect(res2.rate).toBe(1500);
@@ -71,20 +71,20 @@ describe('RatesService', () => {
       (partna.getRate as jest.Mock).mockResolvedValue({
         data: {
           rate: {
-            NGN_to_USDC: { rate: 1500, key: 'rk-123' }
-          }
-        }
+            NGN_to_USDC: { rate: 1500, key: 'rk-123' },
+          },
+        },
       });
       await service.getDisplayRate('NGN', 100); // Prime cache
-      
+
       // Advance time by 70s (past 60s TTL but within 5m fallback)
       jest.advanceTimersByTime(70000);
-      
+
       (partna.getRate as jest.Mock).mockRejectedValue(new Error('API Down'));
-      
+
       const res = await service.getDisplayRate('NGN', 100);
       expect(res.rate).toBe(1500);
-      expect(res.isStale).toBe(true); 
+      expect(res.isStale).toBe(true);
 
       jest.useRealTimers();
     });
@@ -95,14 +95,14 @@ describe('RatesService', () => {
       (partna.getRate as jest.Mock).mockResolvedValue({
         data: {
           rate: {
-            USDC_to_KES: { rate: 135, key: 'rk-456' }
-          }
-        }
+            USDC_to_KES: { rate: 135, key: 'rk-456' },
+          },
+        },
       });
-      
+
       await service.getTransactionRate('KES', 100, 'v1', 'withdrawal');
       await service.getTransactionRate('KES', 100, 'v1', 'withdrawal');
-      
+
       expect(partna.getRate).toHaveBeenCalledTimes(2);
       expect(prisma.exchangeRateLog.create).toHaveBeenCalledTimes(2);
     });
@@ -111,14 +111,14 @@ describe('RatesService', () => {
       (partna.getRate as jest.Mock).mockResolvedValue({
         data: {
           rate: {
-            NGN_to_USDC: { rate: 1600, key: 'rk-789' }
-          }
-        }
+            NGN_to_USDC: { rate: 1600, key: 'rk-789' },
+          },
+        },
       });
-      
+
       await service.getTransactionRate('NGN', 100, 'v1', 'funding');
       await service.getTransactionRate('NGN', 100, 'v1', 'funding');
-      
+
       expect(partna.getRate).toHaveBeenCalledTimes(1);
       expect(prisma.exchangeRateLog.create).toHaveBeenCalledTimes(1);
     });
@@ -127,14 +127,19 @@ describe('RatesService', () => {
       (partna.getRate as jest.Mock).mockResolvedValue({
         data: {
           rate: {
-            NGN_to_USDC: { rate: 1600, key: 'rk-789' }
-          }
-        }
+            NGN_to_USDC: { rate: 1600, key: 'rk-789' },
+          },
+        },
       });
-      
-      const res = await service.getTransactionRate('NGN', 50, 'vault-abc', 'funding');
+
+      const res = await service.getTransactionRate(
+        'NGN',
+        50,
+        'vault-abc',
+        'funding',
+      );
       expect(res.rateKey).toBe('rk-789');
-      
+
       expect(prisma.exchangeRateLog.create).toHaveBeenCalledWith({
         data: {
           currency: 'NGN',
@@ -149,11 +154,13 @@ describe('RatesService', () => {
     });
 
     it('should throw BadRequestException if v4 credentials are missing', async () => {
-      const approvalMsg = 'Partna v4 credentials not yet configured — awaiting account approval.';
+      const approvalMsg =
+        'Partna v4 credentials not yet configured — awaiting account approval.';
       (partna.getRate as jest.Mock).mockRejectedValue(new Error(approvalMsg));
-      
-      await expect(service.getTransactionRate('NGN', 100, 'v1', 'funding'))
-        .rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.getTransactionRate('NGN', 100, 'v1', 'funding'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

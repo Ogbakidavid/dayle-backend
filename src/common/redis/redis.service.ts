@@ -68,7 +68,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return await this.redisClient.get(key);
     } catch (err: any) {
       if (err.message?.includes('max requests limit exceeded')) {
-        this.logger.error('Upstash Redis limit exceeded. Please upgrade or use local Redis.');
+        this.logger.error(
+          'Upstash Redis limit exceeded. Please upgrade or use local Redis.',
+        );
       }
       this.logger.warn(`Redis GET failed for key: ${key}`);
       return null;
@@ -84,7 +86,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return await this.redisClient.set(key, value);
     } catch (err: any) {
       if (err.message?.includes('max requests limit exceeded')) {
-        this.logger.error('Upstash Redis limit exceeded. Please upgrade or use local Redis.');
+        this.logger.error(
+          'Upstash Redis limit exceeded. Please upgrade or use local Redis.',
+        );
       }
       this.logger.warn(`Redis SET failed for key: ${key}`);
       return null;

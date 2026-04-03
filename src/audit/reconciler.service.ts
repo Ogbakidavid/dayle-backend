@@ -26,7 +26,9 @@ export class ReconcilerService {
       await this.reconcileVaults();
     } catch (err) {
       if (err.message.includes('EAI_AGAIN') || err.message.includes('P1001')) {
-        this.logger.warn('Reconciler Service: Database temporarily unreachable. Skipping this run.');
+        this.logger.warn(
+          'Reconciler Service: Database temporarily unreachable. Skipping this run.',
+        );
       } else {
         this.logger.error(`Reconciler Service Failed: ${err.message}`);
       }

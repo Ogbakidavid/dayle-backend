@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Param, Body, Patch, Query, Res, ForbiddenException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Param,
+  Body,
+  Patch,
+  Query,
+  Res,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { Response } from 'express';
 import { VaultsService } from './vaults.service';
@@ -18,7 +28,6 @@ import { UserRole } from '../domain/enums';
 @Controller('vaults')
 export class VaultsController {
   constructor(private vaultsService: VaultsService) {}
-
 
   @Post()
   @Roles(UserRole.CLIENT)
@@ -84,18 +93,24 @@ export class VaultsController {
     @Param('id') id: string,
     @Body() body: { amount?: number; accountName?: string },
   ) {
-    if (process.env.NODE_ENV !== 'development') {
-      throw new ForbiddenException('Mock deposit is only available in development environment');
+    if (
+      process.env.NODE_ENV === 'production' &&
+      process.env.TESTNET_MODE !== 'true'
+    ) {
+      throw new ForbiddenException(
+        'Mock deposit is only available in development or testnet mode',
+      );
     }
-    return this.vaultsService.mockPartnaDeposit(id, body.amount, body.accountName);
+    return this.vaultsService.mockPartnaDeposit(
+      id,
+      body.amount,
+      body.accountName,
+    );
   }
 
   @Post(':id/confirm-payment')
   @Roles(UserRole.CLIENT)
-  async confirmPayment(
-    @Param('id') id: string,
-    @User('id') userId: string,
-  ) {
+  async confirmPayment(@Param('id') id: string, @User('id') userId: string) {
     return this.vaultsService.confirmPayment(id, userId);
   }
 
@@ -103,7 +118,12 @@ export class VaultsController {
   @Roles(UserRole.FREELANCER)
   async withdraw(
     @Param('id') id: string,
-    @Body() bankDetails: { accountNumber: string, bankCode: string, accountName: string },
+    @Body()
+    bankDetails: {
+      accountNumber: string;
+      bankCode: string;
+      accountName: string;
+    },
     @User('id') userId: string,
   ) {
     return this.vaultsService.initiateWithdrawal(id, userId, bankDetails);
@@ -172,5 +192,11 @@ export class VaultsController {
     @User('id') userId: string,
   ) {
     return this.vaultsService.updateFreelancer(id, userId, dto);
+  }
+
+  @Post(':id/request-release')
+  @Roles(UserRole.FREELANCER)
+  async requestRelease(@Param('id') id: string, @User('id') userId: string) {
+    return this.vaultsService.requestRelease(id, userId);
   }
 }

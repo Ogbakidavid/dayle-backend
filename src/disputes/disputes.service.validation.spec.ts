@@ -49,15 +49,17 @@ describe('DisputesService Timer and Escalation', () => {
             notification: {
               create: jest.fn(),
             },
-            $transaction: jest.fn((callback) => callback({
-              dispute: {
-                update: jest.fn(),
-                findUnique: jest.fn().mockResolvedValue(mockDispute),
-              },
-              disputeEvent: {
-                create: jest.fn(),
-              },
-            })),
+            $transaction: jest.fn((callback) =>
+              callback({
+                dispute: {
+                  update: jest.fn(),
+                  findUnique: jest.fn().mockResolvedValue(mockDispute),
+                },
+                disputeEvent: {
+                  create: jest.fn(),
+                },
+              }),
+            ),
           },
         },
         {
@@ -80,27 +82,32 @@ describe('DisputesService Timer and Escalation', () => {
   it('should reset timer to 48 hours on new proposal', async () => {
     (prisma.dispute.findUnique as jest.Mock).mockResolvedValue(mockDispute);
     const txUpdateSpy = jest.fn();
-    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb({
-      dispute: {
-        update: txUpdateSpy,
-        findUnique: jest.fn().mockResolvedValue(mockDispute),
-      },
-      disputeEvent: { create: jest.fn() },
-    }));
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) =>
+      cb({
+        dispute: {
+          update: txUpdateSpy,
+          findUnique: jest.fn().mockResolvedValue(mockDispute),
+        },
+        disputeEvent: { create: jest.fn() },
+      }),
+    );
 
     await service.proposeSettlement('dispute-1', 'client-1', {
       amountToFreelancer: 50,
       notes: 'Test reset',
     });
 
-    expect(txUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'dispute-1' },
-      data: expect.objectContaining({
-        resolutionWindowExpiresAt: expect.any(Date),
+    expect(txUpdateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'dispute-1' },
+        data: expect.objectContaining({
+          resolutionWindowExpiresAt: expect.any(Date),
+        }),
       }),
-    }));
-    
-    const callDate = txUpdateSpy.mock.calls[0][0].data.resolutionWindowExpiresAt;
+    );
+
+    const callDate =
+      txUpdateSpy.mock.calls[0][0].data.resolutionWindowExpiresAt;
     const diffHours = (callDate.getTime() - Date.now()) / (1000 * 60 * 60);
     expect(diffHours).toBeGreaterThan(47.9);
     expect(diffHours).toBeLessThan(48.1);
@@ -112,23 +119,27 @@ describe('DisputesService Timer and Escalation', () => {
     const eightyHoursAgo = new Date(Date.now() - 80 * 60 * 60 * 1000);
     const disputeWithAge = { ...mockDispute, createdAt: eightyHoursAgo };
     (prisma.dispute.findUnique as jest.Mock).mockResolvedValue(disputeWithAge);
-    
+
     const txUpdateSpy = jest.fn();
-    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb({
-      dispute: {
-        update: txUpdateSpy,
-        findUnique: jest.fn().mockResolvedValue(disputeWithAge),
-      },
-      disputeEvent: { create: jest.fn() },
-    }));
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) =>
+      cb({
+        dispute: {
+          update: txUpdateSpy,
+          findUnique: jest.fn().mockResolvedValue(disputeWithAge),
+        },
+        disputeEvent: { create: jest.fn() },
+      }),
+    );
 
     await service.proposeSettlement('dispute-1', 'client-1', {
       amountToFreelancer: 50,
       notes: 'Test cap',
     });
 
-    const callDate = txUpdateSpy.mock.calls[0][0].data.resolutionWindowExpiresAt;
-    const diffFromCreation = (callDate.getTime() - eightyHoursAgo.getTime()) / (1000 * 60 * 60);
+    const callDate =
+      txUpdateSpy.mock.calls[0][0].data.resolutionWindowExpiresAt;
+    const diffFromCreation =
+      (callDate.getTime() - eightyHoursAgo.getTime()) / (1000 * 60 * 60);
     expect(diffFromCreation).toBeCloseTo(96, 0);
   });
 
@@ -137,43 +148,59 @@ describe('DisputesService Timer and Escalation', () => {
     const hundredHoursAgo = new Date(Date.now() - 100 * 60 * 60 * 1000);
     const oldDispute = { ...mockDispute, createdAt: hundredHoursAgo };
     (prisma.dispute.findUnique as jest.Mock).mockResolvedValue(oldDispute);
-    
+
     const txUpdateSpy = jest.fn();
-    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb({
-      dispute: {
-        update: txUpdateSpy,
-        findUnique: jest.fn().mockResolvedValue(oldDispute),
-      },
-      disputeEvent: { create: jest.fn() },
-    }));
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) =>
+      cb({
+        dispute: {
+          update: txUpdateSpy,
+          findUnique: jest.fn().mockResolvedValue(oldDispute),
+        },
+        disputeEvent: { create: jest.fn() },
+      }),
+    );
 
     await expect(
       service.proposeSettlement('dispute-1', 'client-1', {
         amountToFreelancer: 50,
         notes: 'Too late',
       }),
-    ).rejects.toThrow(new BadRequestException("The mutual resolution window has closed. Your dispute is now under platform review."));
+    ).rejects.toThrow(
+      new BadRequestException(
+        'The mutual resolution window has closed. Your dispute is now under platform review.',
+      ),
+    );
 
-    expect(txUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({
-      data: { status: DisputeStatus.UNDER_REVIEW },
-    }));
+    expect(txUpdateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: DisputeStatus.UNDER_REVIEW },
+      }),
+    );
   });
 
   it('should allow total refund request and reset timer', async () => {
     (prisma.dispute.findUnique as jest.Mock).mockResolvedValue(mockDispute);
     const txUpdateSpy = jest.fn();
-    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) => cb({
-      dispute: {
-        update: txUpdateSpy,
-        findUnique: jest.fn().mockResolvedValue(mockDispute),
-      },
-      disputeEvent: { create: jest.fn() },
-    }));
+    (prisma.$transaction as jest.Mock).mockImplementation(async (cb) =>
+      cb({
+        dispute: {
+          update: txUpdateSpy,
+          findUnique: jest.fn().mockResolvedValue(mockDispute),
+        },
+        disputeEvent: { create: jest.fn() },
+      }),
+    );
 
-    await service.requestTotalRefund('dispute-1', 'client-1', 'Full refund please');
+    await service.requestTotalRefund(
+      'dispute-1',
+      'client-1',
+      'Full refund please',
+    );
 
-    expect(txUpdateSpy).toHaveBeenCalledWith(expect.objectContaining({
-      data: { resolutionWindowExpiresAt: expect.any(Date) },
-    }));
+    expect(txUpdateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { resolutionWindowExpiresAt: expect.any(Date) },
+      }),
+    );
   });
 });
