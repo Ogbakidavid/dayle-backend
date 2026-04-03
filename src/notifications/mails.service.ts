@@ -82,11 +82,12 @@ export class MailsService {
 
     try {
       this.logger.log(`Executing email sending to ${to}...`);
-      const fromEmail =
-        this.configService.get<string>('RESEND_FROM_EMAIL') ||
-        'onboarding@resend.dev';
+      
+      const fromName = this.configService.get<string>('RESEND_FROM_NAME') || 'Dayle';
+      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@mail.orynexlabs.com';
+
       const { data, error } = await this.resend.emails.send({
-        from: `Dayle <${fromEmail}>`,
+        from: `${fromName} <${fromEmail}>`,
         to: [to],
         subject: `Dayle: You've been invited to join vault "${vaultTitle}"`,
         html: `
