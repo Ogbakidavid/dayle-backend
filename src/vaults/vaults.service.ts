@@ -367,7 +367,7 @@ export class VaultsService {
     if (vault.clientId !== userId)
       throw new ForbiddenException('Not authorized');
 
-    if (vault.client.kycStatus !== KycStatus.VERIFIED) {
+    if (vault.client.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
       throw new BadRequestException(
         'KYC verification must be completed before funding.',
       );
@@ -658,7 +658,7 @@ export class VaultsService {
       throw new ForbiddenException('Not authorized');
 
     if (
-      vault.freelancer?.kycStatus !== KycStatus.VERIFIED ||
+      (vault.freelancer?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') ||
       !vault.freelancer?.paymentAccountReady
     ) {
       throw new BadRequestException(
@@ -1051,7 +1051,7 @@ export class VaultsService {
     const client = await this.prisma.user.findUnique({
       where: { id: userId },
     });
-    if (client?.kycStatus !== KycStatus.VERIFIED) {
+    if (client?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
       throw new BadRequestException({
         code: 'KYC_REQUIRED',
         message: 'Identity verification (Tier 2) is required to release funds.',
@@ -1280,7 +1280,7 @@ export class VaultsService {
 
     // Enforce Tier 2 KYC for refund requests
     const client = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (client?.kycStatus !== KycStatus.VERIFIED) {
+    if (client?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
       throw new BadRequestException(
         'Identity verification (Tier 2) is required to request a refund.',
       );

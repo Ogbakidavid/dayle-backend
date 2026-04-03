@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +18,7 @@ import { Queue } from 'bullmq';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
@@ -513,6 +514,22 @@ export class AdminService {
 
     console.log(`Withdrawal retry re-queued for vault ${vaultId} by admin ${adminId}`);
     return { success: true, message: 'Withdrawal retry initiated (Queued)' };
+  }
+
+  async manualVerifyUser(userId: string, adminId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycStatus: 'VERIFIED' as any,
+        kycVerifiedAt: new Date(),
+      },
+    });
+
+    this.logger.log(`[ADMIN] User ${userId} manually verified by admin ${adminId}`);
+    return { success: true, userId, kycStatus: 'VERIFIED' };
   }
 
   async markWithdrawalFailed(adminId: string, vaultId: string) {

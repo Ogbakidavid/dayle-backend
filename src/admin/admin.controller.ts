@@ -60,6 +60,11 @@ export class AdminController {
     return this.adminService.resetKyc(req.user, userId);
   }
 
+  @Post('users/:id/verify')
+  async manualVerifyUser(@Param('id') id: string, @Req() req: any) {
+    return this.adminService.manualVerifyUser(id, req.user.id);
+  }
+
   @Get('ledger')
   async getLedger(@Req() req: any) {
     return this.adminService.getLedger(req.user);

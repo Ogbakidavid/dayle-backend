@@ -27,6 +27,7 @@ model User {
   partnaCustomerId        String?
   partnaAccountRef        String?
   identityAttempts        Int                      @default(0)
+  kycVerifiedAt           DateTime?
   disputes                Dispute[]
   evidenceCreated         Evidence[]
   invitesSent             Invite[]                 @relation("InvitesSent")
