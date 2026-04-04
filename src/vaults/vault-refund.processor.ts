@@ -5,6 +5,7 @@ import { Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { VaultStatus, LedgerEntryType, TransactionStatus } from '../domain/enums';
+import { RedisService } from '../common/redis/redis.service';
 
 @Processor('vault-refund')
 export class VaultRefundProcessor extends WorkerHost {
@@ -14,6 +15,7 @@ export class VaultRefundProcessor extends WorkerHost {
     private vaultsService: VaultsService,
     private prisma: PrismaService,
     private blockchainService: BlockchainService,
+    private redisService: RedisService,
   ) {
     super();
   }
@@ -51,6 +53,29 @@ export class VaultRefundProcessor extends WorkerHost {
       // 2. Blockchain Refund
       if (vault.vaultAddress) {
         await this.blockchainService.refundVault(vault.vaultAddress);
+      }
+
+      // 3. Invalidate Cache
+      try {
+        await this.vaultsService.invalidateVaultCache(
+          vault.id,
+          vault.clientId,
+          vault.freelancerId,
+        );
+      } catch (cacheErr) {
+        this.logger.error(`[REFUND SUCCESS] Failed to invalidate cache`, cacheErr);
+      }
+
+      // 4. Publish for Real-time
+      try {
+        await this.redisService.publish('vault.refunded', {
+          vaultId,
+          clientId: vault.clientId,
+          freelancerId: vault.freelancerId,
+          title: vault.title,
+        });
+      } catch (redisErr) {
+        this.logger.error(`[REFUND SUCCESS] Failed to publish redis event`, redisErr);
       }
 
       this.logger.log(`[REFUND SUCCESS] Vault ${vaultId} refunded successfully`);

@@ -252,7 +252,7 @@ export class VaultsService {
     return this.formatVault(vault);
   }
 
-  private async invalidateVaultCache(
+  async invalidateVaultCache(
     vaultId: string,
     clientId: string,
     freelancerId?: string | null,

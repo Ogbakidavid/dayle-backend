@@ -47,16 +47,21 @@ export class NotificationsGateway
     const subClient = redis.duplicate();
 
     subClient.on('ready', () => {
-      subClient.subscribe('vault.funded', (err, count) => {
-        if (err) {
-          this.logger.error(
-            'Failed to subscribe to Redis channels',
-            err.message,
-          );
-          return;
-        }
-        this.logger.log(`Subscribed to ${count} Redis channels`);
-      });
+      subClient.subscribe(
+        'vault.funded',
+        'vault.released',
+        'vault.refunded',
+        (err, count) => {
+          if (err) {
+            this.logger.error(
+              'Failed to subscribe to Redis channels',
+              err.message,
+            );
+            return;
+          }
+          this.logger.log(`Subscribed to ${count} Redis channels`);
+        },
+      );
     });
 
     subClient.on('error', (err) => {
@@ -64,8 +69,9 @@ export class NotificationsGateway
     });
 
     subClient.on('message', (channel, message) => {
+      const payload = JSON.parse(message);
+
       if (channel === 'vault.funded') {
-        const payload = JSON.parse(message);
         // Alert both client and freelancer if they are connected
         if (payload.clientId)
           this.sendToUser(payload.clientId, 'notification', {
@@ -79,6 +85,36 @@ export class NotificationsGateway
             type: 'payment',
             title: 'New Funding',
             message: `Vault ${payload.vaultId} is now funded and ready for work!`,
+            action: `/freelancer/vault/${payload.vaultId}`,
+          });
+      } else if (channel === 'vault.released') {
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'notification', {
+            type: 'success',
+            title: 'Funds Released',
+            message: `Funds for vault "${payload.title}" have been released to the freelancer.`,
+            action: `/client/vault/${payload.vaultId}`,
+          });
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'notification', {
+            type: 'success',
+            title: 'Payment Received',
+            message: `Funds for vault "${payload.title}" have been released to your balance!`,
+            action: `/freelancer/vault/${payload.vaultId}`,
+          });
+      } else if (channel === 'vault.refunded') {
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'notification', {
+            type: 'info',
+            title: 'Vault Refunded',
+            message: `Funds for vault "${payload.title}" have been refunded to your wallet.`,
+            action: `/client/vault/${payload.vaultId}`,
+          });
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'notification', {
+            type: 'info',
+            title: 'Vault Cancelled',
+            message: `The vault "${payload.title}" has been cancelled and refunded.`,
             action: `/freelancer/vault/${payload.vaultId}`,
           });
       }

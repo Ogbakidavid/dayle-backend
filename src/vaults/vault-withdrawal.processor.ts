@@ -8,6 +8,7 @@ import { BlockchainService } from '../common/services/blockchain.service';
 import { PartnaService } from '../common/services/partna.service';
 import { RatesService } from '../rates/rates.service';
 import { VaultStatus } from '../domain/enums';
+import { RedisService } from '../common/redis/redis.service';
 import { ethers } from 'ethers';
 import * as crypto from 'crypto';
 
@@ -22,6 +23,7 @@ export class VaultWithdrawalProcessor extends WorkerHost {
     private blockchainService: BlockchainService,
     private partnaService: PartnaService,
     private ratesService: RatesService,
+    private redisService: RedisService,
   ) {
     super();
   }
@@ -125,15 +127,32 @@ export class VaultWithdrawalProcessor extends WorkerHost {
       } catch (partnaError) {
         this.logger.error(`Withdrawal totally failed for vault ${vaultId}: ${partnaError.message}`);
         
-        // If this was the last attempt, mark as failed
         if (job.attemptsMade + 1 >= (job.opts.attempts || 1)) {
-          this.logger.error(`[ADMIN ALERT] Withdrawal failed for vault ${vaultId} after max attempts`);
           await this.prisma.vault.update({
             where: { id: vaultId },
             data: { status: VaultStatus.WITHDRAWAL_FAILED },
           });
         }
-        throw partnaError; // Re-throw to trigger BullMQ retry
+        throw partnaError;
+      }
+    } finally {
+      // 3. Invalidate Cache anyway if we changed status
+      try {
+        await this.vaultsService.invalidateVaultCache(
+          vaultId,
+          vault.clientId,
+          vault.freelancerId,
+        );
+
+        // 4. Publish for Real-time
+        await this.redisService.publish('vault.released', {
+          vaultId,
+          clientId: vault.clientId,
+          freelancerId: vault.freelancerId,
+          title: vault.title,
+        });
+      } catch (cacheErr) {
+        this.logger.error(`[WITHDRAWAL] Failed to sync state`, cacheErr);
       }
     }
   }

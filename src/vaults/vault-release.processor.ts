@@ -7,6 +7,7 @@ import { BlockchainService } from '../common/services/blockchain.service';
 import { VaultStatus, LedgerEntryType, TransactionStatus } from '../domain/enums';
 import { ethers } from 'ethers';
 import { calculateDayleFee } from '../common/utils/fee.utils';
+import { RedisService } from '../common/redis/redis.service';
 
 @Processor('vault-release')
 export class VaultReleaseProcessor extends WorkerHost {
@@ -16,6 +17,7 @@ export class VaultReleaseProcessor extends WorkerHost {
     private vaultsService: VaultsService,
     private prisma: PrismaService,
     private blockchainService: BlockchainService,
+    private redisService: RedisService,
   ) {
     super();
   }
@@ -103,6 +105,29 @@ export class VaultReleaseProcessor extends WorkerHost {
           vault.vaultAddress,
           fees.totalFeeBasisPoints,
         );
+      }
+
+      // 3. Invalidate Cache
+      try {
+        await this.vaultsService.invalidateVaultCache(
+          vault.id,
+          vault.clientId,
+          vault.freelancerId,
+        );
+      } catch (cacheErr) {
+        this.logger.error(`[RELEASE SUCCESS] Failed to invalidate cache`, cacheErr);
+      }
+
+      // 4. Publish for Real-time
+      try {
+        await this.redisService.publish('vault.released', {
+          vaultId,
+          clientId: vault.clientId,
+          freelancerId: vault.freelancerId,
+          title: vault.title,
+        });
+      } catch (redisErr) {
+        this.logger.error(`[RELEASE SUCCESS] Failed to publish redis event`, redisErr);
       }
 
       this.logger.log(`[RELEASE SUCCESS] Vault ${vaultId} released successfully`);
