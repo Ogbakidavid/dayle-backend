@@ -404,33 +404,35 @@ export class OnboardingService {
           }
         }
 
-        // 2. [SYNC EXISTING DATA]
-        const accountsDetails = await this.partnaService.getAccountDetails();
-        const existingAccount = accountsDetails.find((acc: any) => acc.currency === 'NGN');
-
-        if (existingAccount && existingAccount.status === 'ACTIVE') {
-          this.logger.log(`[PARTNA AUTO-SYNC] Existing NGN account found for ${user.email}. Skipping KYC.`);
-          const updatedUser = await this.prisma.user.update({
-            where: { id: userId },
-            data: {
-              paymentAccountReady: true,
-              partnaCustomerId: finalAccountName,
-              partnaAccountRef: String(existingAccount.accountNumber || existingAccount.externalRef || 'REF-SYNC'),
-              kycStatus: 'VERIFIED',
-              country: 'Nigeria',
-            },
+        // 2. [PARTNA BVN KYC]
+        let kycRes: any = null;
+        try {
+          kycRes = await this.partnaService.initiateKyc({
+            accountName: finalAccountName,
+            bvn: bvnToUse,
           });
-          return this.sanitizeUser(updatedUser);
+        } catch (kycError: any) {
+          // "kyc previously completed" means this user is already verified on Partna
+          // Treat as success — skip to virtual account creation
+          if (
+            kycError.message?.toLowerCase().includes('kyc previously completed') ||
+            kycError.message?.toLowerCase().includes('previously completed')
+          ) {
+            this.logger.log(
+              `[PARTNA KYC] KYC already completed for ${finalAccountName}. Proceeding to virtual account.`
+            );
+            kycRes = { data: null }; // Signal to skip OTP step
+          } else {
+            throw kycError; // Real error — rethrow
+          }
         }
 
-        // 3. [PARTNA KYC INITIATION]
-        const kycRes = await this.partnaService.initiateKyc({
-          accountName: finalAccountName,
-          bvn: bvnToUse,
-        });
-
-        // 4. [CHECK FOR OTP REQUIREMENT]
-        if (kycRes.data?.methods) {
+        // 3. [CHECK FOR OTP REQUIREMENT]
+        // Only enter OTP flow if Partna returned methods AND kyc wasn't already done
+        if (kycRes?.data?.methods) {
+          this.logger.log(
+            `[PARTNA KYC] OTP required for user ${userId}. Methods: ${JSON.stringify(kycRes.data.methods)}`
+          );
           await this.prisma.user.update({
             where: { id: userId },
             data: {
@@ -438,11 +440,26 @@ export class OnboardingService {
               partnaCustomerId: finalAccountName,
             },
           });
-          return { requiresOtp: true, methods: kycRes.data.methods };
+          return {
+            requiresOtp: true,
+            methods: kycRes.data.methods,
+          };
         }
 
-        // 5. [PARTNA VIRTUAL ACCOUNT CREATION]
-        const accountCreateRes = await this.partnaService.createVirtualAccount(finalAccountName, 'NGN');
+        // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
+        // Reaches here if: KYC succeeded instantly OR kyc previously completed
+        const accountCreateRes = await this.partnaService
+          .createVirtualAccount(finalAccountName, 'NGN')
+          .catch((err: any) => {
+            if (
+              err.message?.toLowerCase().includes('already exists') ||
+              err.message?.toLowerCase().includes('account exists')
+            ) {
+              this.logger.log(`[PARTNA VIRTUAL ACCOUNT] Already exists for ${finalAccountName}. Treating as success.`);
+              return { data: { accountNumber: 'REF-EXISTING', id: 'REF-EXISTING' } };
+            }
+            throw err;
+          });
         const accountData = accountCreateRes.data?.[0] || accountCreateRes.data || {};
 
         const updatedUser = await this.prisma.user.update({
@@ -451,7 +468,11 @@ export class OnboardingService {
             bvn: this.cryptoService.encrypt(bvnToUse),
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef: String((accountData as any).accountNumber || (accountData as any).id || 'REF-NEW'),
+            partnaAccountRef: String(
+              (accountData as any).accountNumber ||
+              (accountData as any).id ||
+              'REF-PENDING'
+            ),
             kycStatus: 'VERIFIED',
           },
         });
@@ -512,16 +533,29 @@ export class OnboardingService {
           }
         }
 
-        // 2. [PARTNA PHONE KYC] - uses finalAccountName (now correctly recovered or newly created)
-        const sanitizedPhone = phoneToUse.replace('+254', '0');
-        const kycRes = await this.partnaService.initiateKyc({
-          accountName: finalAccountName,
-          kesMobileNetwork: 'MPESA',
-          kesShortcode: sanitizedPhone,
-        });
+        // 2. [PARTNA PHONE KYC - KENYA]
+        let kycRes: any = null;
+        try {
+          const sanitizedPhone = phoneToUse.replace('+254', '0');
+          kycRes = await this.partnaService.initiateKyc({
+            accountName: finalAccountName,
+            kesMobileNetwork: 'MPESA',
+            kesShortcode: sanitizedPhone,
+          });
+        } catch (kycError: any) {
+          if (
+            kycError.message?.toLowerCase().includes('kyc previously completed') ||
+            kycError.message?.toLowerCase().includes('previously completed')
+          ) {
+            this.logger.log(`[PARTNA KE KYC] Already completed for ${finalAccountName}.`);
+            kycRes = { data: null };
+          } else {
+            throw kycError;
+          }
+        }
 
         // 3. [CHECK FOR OTP REQUIREMENT]
-        if (kycRes.data?.methods) {
+        if (kycRes?.data?.methods) {
           await this.prisma.user.update({
             where: { id: userId },
             data: {
@@ -538,9 +572,15 @@ export class OnboardingService {
         // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
         const accountRes = await this.partnaService
           .createVirtualAccount(finalAccountName, 'KES')
-          .catch((err) => {
-            this.logger.warn(`[KE VIRTUAL ACCOUNT FAILED] ${err.message}`);
-            return { data: [] };
+          .catch((err: any) => {
+            if (
+              err.message?.toLowerCase().includes('already exists') ||
+              err.message?.toLowerCase().includes('account exists')
+            ) {
+              this.logger.log(`[PARTNA KE VIRTUAL ACCOUNT] Already exists for ${finalAccountName}.`);
+              return { data: { accountNumber: 'REF-EXISTING', id: 'REF-EXISTING' } };
+            }
+            throw err;
           });
         const accountData = accountRes.data?.[0] || accountRes.data || {};
 
