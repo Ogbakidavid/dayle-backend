@@ -532,6 +532,38 @@ export class VaultsService {
       .replace(/[^a-zA-Z0-9]/g, '')
       .toLowerCase();
 
+    let phoneID = currency === 'KES' ? vault.client.partnaAccountRef : undefined;
+
+    // IF KES and phoneID looks like a placeholder (e.g. from old version), try to recover it
+    if (currency === 'KES' && (!phoneID || phoneID.startsWith('REF-'))) {
+      this.logger.log(
+        `[VAULT FUND] Attempting to recover phoneID for Kenyan user: ${partnaAccountName}...`,
+      );
+      try {
+        const verifiedPhoneRes: any = await this.partnaService.getVerifiedPhone(
+          'KE',
+          partnaAccountName,
+        );
+        // Partna usually returns an array or a single object with data
+        const recoveredPhone =
+          verifiedPhoneRes?.data?.[0] || verifiedPhoneRes?.data;
+        if (recoveredPhone?.phoneID) {
+          phoneID = recoveredPhone.phoneID;
+          this.logger.log(
+            `[VAULT FUND] Successfully recovered phoneID: ${phoneID}. Updating user...`,
+          );
+          await this.prisma.user.update({
+            where: { id: vault.client.id },
+            data: { partnaAccountRef: phoneID },
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `[VAULT FUND] Failed to recover phoneID for Kenya: ${e.message}`,
+        );
+      }
+    }
+
     const rampResponse: any = await this.partnaService.createRamp({
       type: 'fiatToCrypto',
       fromCurrency: currency,
@@ -545,8 +577,7 @@ export class VaultsService {
       rateKey: rateKey,
       rampReference: rampReference,
       accountName: partnaAccountName,
-      phoneID:
-        currency === 'KES' ? vault.client.partnaAccountRef : undefined,
+      phoneID: phoneID,
       cancelPendingRampRequest: true, // Allow re-generating bank details if one is already pending
     });
 

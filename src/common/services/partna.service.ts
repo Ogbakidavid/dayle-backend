@@ -618,4 +618,10 @@ export class PartnaService {
       data: { id: reference },
     };
   }
+
+  async getVerifiedPhone(country: string, accountName: string) {
+    return this.request(`/phone?country=${country}&accountName=${accountName}`, {
+      method: 'get',
+    });
+  }
 }

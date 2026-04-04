@@ -31,7 +31,10 @@ export class NotificationsService {
         },
       });
 
-      if (!existingKycNotif) {
+      if (
+        !existingKycNotif &&
+        this.configService.get('TESTNET_MODE') !== 'true'
+      ) {
         await this.prisma.notification.create({
           data: {
             userId,
