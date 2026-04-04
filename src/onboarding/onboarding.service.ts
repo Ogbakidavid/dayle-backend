@@ -337,53 +337,36 @@ export class OnboardingService {
 
       try {
         // 1. [PARTNA PROFILE CREATION & RECOVERY]
-        let finalAccountName = accountName;
-        try {
-          await this.partnaService.createAccount(finalAccountName, user.email);
-        } catch (e: any) {
-          if (e.message.includes('exists')) {
-            this.logger.warn(
-              `[PARTNA COLLISION] Email ${user.email} already exists. Attempting recovery...`,
-            );
-            // RECOVERY: List accounts and find the one that matches this email
-            const accounts = await this.partnaService.getAccountDetails();
-            const existing = accounts.find(
-              (acc: any) =>
-                (acc.email || '').toLowerCase() === user.email.toLowerCase(),
-            );
+        const accountRes = await this.partnaService.createAccount(accountName, user.email);
+        const finalAccountName = (accountRes.data as any).accountName || accountName;
 
-            if (existing) {
-              finalAccountName = (existing.externalRef ||
-                existing.account_name ||
-                existing.accountName) as string;
-              this.logger.log(
-                `[PARTNA RECOVERY] Successfully recovered accountName: ${finalAccountName} for ${user.email}`,
-              );
-            } else {
-              this.logger.error(
-                `[PARTNA RECOVERY FAILED] Collision reported but email ${user.email} not found in account list.`,
-              );
-              throw new BadRequestException(
-                'This email is already registered on Partna under a different ID. Please use a fresh email address.',
-              );
-            }
-          } else {
-            throw e;
-          }
+        // 2. [SYNC EXISTING DATA]
+        const accountsDetails = await this.partnaService.getAccountDetails();
+        const existingAccount = accountsDetails.find((acc: any) => acc.currency === 'NGN');
+
+        if (existingAccount && existingAccount.status === 'ACTIVE') {
+          this.logger.log(`[PARTNA AUTO-SYNC] Existing NGN account found for ${user.email}. Skipping KYC.`);
+          const updatedUser = await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              paymentAccountReady: true,
+              partnaCustomerId: finalAccountName,
+              partnaAccountRef: String(existingAccount.accountNumber || existingAccount.externalRef || 'REF-SYNC'),
+              kycStatus: 'VERIFIED',
+              country: 'Nigeria',
+            },
+          });
+          return this.sanitizeUser(updatedUser);
         }
 
-        // 2. [PARTNA BVN KYC]
+        // 3. [PARTNA KYC INITIATION]
         const kycRes = await this.partnaService.initiateKyc({
           accountName: finalAccountName,
           bvn: bvnToUse,
         });
 
-        // 3. [CHECK FOR OTP REQUIREMENT]
-        // Partna v4 might return verification methods if OTP is needed
+        // 4. [CHECK FOR OTP REQUIREMENT]
         if (kycRes.data?.methods) {
-          this.logger.log(
-            `[PARTNA KYC] OTP required for user ${userId}. Methods: ${JSON.stringify(kycRes.data.methods)}`,
-          );
           await this.prisma.user.update({
             where: { id: userId },
             data: {
@@ -391,61 +374,28 @@ export class OnboardingService {
               partnaCustomerId: finalAccountName,
             },
           });
-          return {
-            requiresOtp: true,
-            methods: kycRes.data.methods,
-          };
+          return { requiresOtp: true, methods: kycRes.data.methods };
         }
 
-        // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
-        // If no methods returned, assume KYC succeeded or is instant
-        const accountRes = await this.partnaService.createVirtualAccount(
-          finalAccountName,
-          'NGN',
-        );
-        const accountData = accountRes.data?.[0] || accountRes.data || {};
+        // 5. [PARTNA VIRTUAL ACCOUNT CREATION]
+        const accountCreateRes = await this.partnaService.createVirtualAccount(finalAccountName, 'NGN');
+        const accountData = accountCreateRes.data?.[0] || accountCreateRes.data || {};
 
-        // 5. Update user ONLY after all Partna steps succeed
         const updatedUser = await this.prisma.user.update({
           where: { id: userId },
           data: {
             bvn: this.cryptoService.encrypt(bvnToUse),
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef:
-              (accountData as any).accountNumber ||
-              (accountData as any).id ||
-              'REF-PENDING',
+            partnaAccountRef: String((accountData as any).accountNumber || (accountData as any).id || 'REF-NEW'),
+            kycStatus: 'VERIFIED',
           },
         });
 
         return this.sanitizeUser(updatedUser);
       } catch (e) {
-        this.logger.error(
-          `[BVN VERIFICATION FAILED] User ${userId}: ${e.message}`,
-        );
-
-        // Handle Partna specific error: "maximum kyc lookup attempts reached"
-        if (e.message.includes('maximum kyc lookup attempts reached')) {
-          throw new BadRequestException({
-            code: 'KYC_LOOKUP_LIMIT_REACHED',
-            message:
-              "You've reached the maximum number of verification attempts. Please contact support via Slack to reset your account.",
-            originalError: e.message,
-          });
-        }
-
-        if (e.message.includes('Account not found')) {
-          throw new BadRequestException(
-            e.message ||
-              'Partna account initialization failed. This often happens if your email is already registered with a different account on Partna.',
-          );
-        }
-
-        throw new BadRequestException(
-          e.message ||
-            "We couldn't verify your BVN. Please check the number and try again.",
-        );
+        this.logger.error(`[BVN VERIFICATION FAILED] User ${userId}: ${e.message}`);
+        throw new BadRequestException(e.message || "Verification failed.");
       }
     } else if (country === 'KE') {
       const phoneToUse = dto.phoneNumber || '';
@@ -453,25 +403,32 @@ export class OnboardingService {
         throw new BadRequestException('Phone number is required');
 
       try {
-        // 1. [PARTNA PROFILE CREATION & RECOVERY]
-        let finalAccountName = accountName;
-        try {
-          await this.partnaService.createAccount(finalAccountName, user.email);
-        } catch (e: any) {
-          if (e.message.includes('exists')) {
-            const accounts = await this.partnaService.getAccountDetails();
-            const existing = accounts.find(
-              (acc: any) =>
-                (acc.email || '').toLowerCase() === user.email.toLowerCase(),
-            );
-            if (existing) {
-              finalAccountName = (existing.externalRef ||
-                existing.account_name ||
-                existing.accountName) as string;
-            }
-          } else {
-            throw e;
-          }
+        // 1. [PARTNA PROFILE CREATION & RECOVERY] - Now handles 409 automatically
+        const accountResKe = await this.partnaService.createAccount(
+          accountName,
+          user.email,
+        );
+        const finalAccountName = (accountResKe.data as any).accountName || accountName;
+
+        // 2. [SYNC EXISTING DATA]
+        const accountsDetails = await this.partnaService.getAccountDetails();
+        const existingAccount = accountsDetails.find(
+          (acc: any) => acc.currency === 'KES',
+        );
+
+        if (existingAccount && existingAccount.status === 'ACTIVE') {
+          this.logger.log(`[PARTNA AUTO-SYNC] Existing KES account found for ${user.email}. Skipping KYC.`);
+          const updatedUser = await this.prisma.user.update({
+            where: { id: userId },
+            data: {
+              paymentAccountReady: true,
+              partnaCustomerId: finalAccountName,
+              partnaAccountRef: String(existingAccount.accountNumber || existingAccount.externalRef || 'REF-SYNC'),
+              kycStatus: 'VERIFIED',
+              country: 'Kenya',
+            },
+          });
+          return this.sanitizeUser(updatedUser);
         }
 
         // 2. [PARTNA PHONE KYC]

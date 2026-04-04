@@ -294,8 +294,26 @@ export class PartnaService {
         email,
         type,
       }),
+    }).catch(async (err) => {
+      if (err.message.includes('already exists') || err.message.includes('409')) {
+        this.logger.log(`[PARTNA CREATE ACCOUNT CONFLICT] Account ${email} already exists. Fetching existing profile...`);
+        // If it already exists, fetching the profile will return the same data format
+        const profile = await this.getAccountProfile();
+        return profile;
+      }
+      throw err;
     });
     this.logger.log(`[PARTNA CREATE ACCOUNT RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
+   * GET /v4/account/myprofile
+   * Fetches the profile of the current Merchant-managed user (x-api-user)
+   */
+  async getAccountProfile() {
+    this.logger.log(`[PARTNA GET PROFILE REQUEST]`);
+    const res = await this.request('/account/myprofile');
     return res;
   }
 
