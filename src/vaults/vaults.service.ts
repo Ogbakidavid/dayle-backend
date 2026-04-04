@@ -905,6 +905,12 @@ export class VaultsService {
         `[DEVELOPMENT] Partna Mock Success. Scheduling local on-chain bridge for vault ${vaultId}...`,
       );
 
+      // Immediately mark as processing in DB so UI can show a loading state
+      await this.prisma.vault.update({
+        where: { id: vaultId },
+        data: { status: VaultStatus.PROCESSING_PAYMENT },
+      });
+
       // Mimic network latency
       setTimeout(async () => {
         try {
@@ -970,11 +976,16 @@ export class VaultsService {
         this.logger.log(
           `[SIMULATION] Blockchain deposit successful: ${blockchainTxHash}`,
         );
-      } catch (error) {
-        this.logger.error(
-          `[SIMULATION] Failed to trigger on-chain deposit`,
-          error,
-        );
+      } catch (error: any) {
+        // If the contract says it's already funded, we can treat it as success for the DB simulation
+        if (error.message?.includes('Vault already funded or invalid state')) {
+          this.logger.log(`[SIMULATION] Vault already funded on-chain. Syncing DB...`);
+        } else {
+          this.logger.error(
+            `[SIMULATION] Failed to trigger on-chain deposit`,
+            error,
+          );
+        }
       }
     }
 
