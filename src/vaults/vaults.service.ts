@@ -545,6 +545,10 @@ export class VaultsService {
       rateKey: rateKey,
       rampReference: rampReference,
       accountName: partnaAccountName,
+      phoneID:
+        currency === 'KES'
+          ? (vault.client.phoneNumber || '').replace('+254', '0')
+          : undefined,
       cancelPendingRampRequest: true, // Allow re-generating bank details if one is already pending
     });
 
