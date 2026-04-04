@@ -692,6 +692,7 @@ export class OnboardingService {
       where: { id: userId },
       data: {
         paymentAccountReady: true,
+        kycStatus: KycStatus.VERIFIED,
         partnaAccountRef:
           (accountData as any).accountNumber ||
           (accountData as any).id ||
