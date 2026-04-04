@@ -119,7 +119,7 @@ export class MailsService {
       this.logger.log(`Executing invite email sending to ${to}...`);
       
       const fromName = this.configService.get<string>('RESEND_FROM_NAME') || 'Dayle';
-      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@mail.orynexlabs.com';
+      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@orynexlabs.com';
 
       const { data, error } = await this.resend.emails.send({
         from: `${fromName} <${fromEmail}>`,
@@ -173,7 +173,7 @@ export class MailsService {
       this.logger.log(`Executing vault funded email sending to ${to}...`);
       
       const fromName = this.configService.get<string>('RESEND_FROM_NAME') || 'Dayle';
-      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@mail.orynexlabs.com';
+      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@orynexlabs.com';
 
       const subject = isFreelancer 
         ? `Dayle: Funds Secured for "${vaultTitle}" — Start Work Now`
