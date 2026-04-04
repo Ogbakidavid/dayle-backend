@@ -544,9 +544,8 @@ export class VaultsService {
           'KE',
           partnaAccountName,
         );
-        // Partna usually returns an array or a single object with data
-        const recoveredPhone =
-          verifiedPhoneRes?.data?.[0] || verifiedPhoneRes?.data;
+        // Partna v4 /phone returns { data: { validPhoneRecords: [{ phoneID, ... }] } }
+        const recoveredPhone = verifiedPhoneRes?.data?.validPhoneRecords?.[0];
         if (recoveredPhone?.phoneID) {
           phoneID = recoveredPhone.phoneID;
           this.logger.log(
