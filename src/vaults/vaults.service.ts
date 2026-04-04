@@ -454,28 +454,22 @@ export class VaultsService {
       vault.status === VaultStatus.AWAITING_PAYMENT &&
       vault.partnaAccountNumber
     ) {
-      // Check if not expired (with 5-minute buffer to be safe)
-      const now = new Date();
-      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-      if (
-        vault.partnaExpiryDate &&
-        vault.partnaExpiryDate > fiveMinutesFromNow
-      ) {
-        this.logger.log(
-          `[VAULT FUND] Returning existing bank details for vault:${vaultId}`,
-        );
-        return {
-          bankDetails: {
-            bankName: vault.partnaBankName,
-            accountNumber: vault.partnaAccountNumber,
-            accountName: vault.partnaAccountName,
-            amount: vault.partnaFromAmount,
-            currency: vault.partnaFromCurrency,
-            reference: vault.partnaRampReference,
-            expiryDate: vault.partnaExpiryDate,
-          },
-        };
-      }
+      this.logger.log(
+        `[VAULT FUND] Returning existing bank details for vault:${vaultId}`,
+      );
+      return {
+        bankDetails: {
+          accountNumber: vault.partnaAccountNumber,
+          accountName: vault.partnaAccountName,
+          bankName: vault.partnaBankName || 'Standard Chartered',
+          amount: vault.partnaFromAmount || vault.localAmount,
+          currency: vault.partnaFromCurrency || vault.localCurrency,
+          reference: vault.partnaRampReference,
+          expiresAt: vault.partnaExpiryDate
+            ? vault.partnaExpiryDate.toISOString()
+            : new Date().toISOString(),
+        },
+      };
     }
 
     // Calculate tiered fees based on Budget
