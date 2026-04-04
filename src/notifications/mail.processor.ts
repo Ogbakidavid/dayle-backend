@@ -24,5 +24,16 @@ export class MailProcessor extends WorkerHost {
         inviteToken,
       );
     }
+
+    if (job.name === 'sendVaultFunded') {
+      const { to, userName, vaultTitle, amount, isFreelancer } = job.data;
+      return this.mailsService.handleSendVaultFundedEmail(
+        to,
+        userName,
+        vaultTitle,
+        amount,
+        isFreelancer,
+      );
+    }
   }
 }

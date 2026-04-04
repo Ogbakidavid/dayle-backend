@@ -501,7 +501,7 @@ export class VaultsService {
     // Determine local amount: prioritize stored localAmount from creation for consistency
     let localAmount = dto.amount;
     if (!localAmount && vault.localAmount && vault.localCurrency === currency) {
-      localAmount = vault.localAmount;
+      localAmount = Math.round(Number(vault.localAmount));
       this.logger.log(
         `[VAULT FUND] Using stored localAmount for consistency: ${localAmount} ${currency}`,
       );
@@ -512,7 +512,9 @@ export class VaultsService {
       );
     }
 
-    let rampReference = vault.partnaRampReference || crypto.randomBytes(16).toString('hex');
+    // IMPORTANT: Always generate a fresh reference if we are creating a new ramp
+    // Reusing vault.partnaRampReference causes "ramp reference already exists" errors if the previous attempt was interrupted.
+    let rampReference = crypto.randomBytes(16).toString('hex');
     while (rampReference.startsWith('0')) {
       rampReference = crypto.randomBytes(16).toString('hex');
     }
@@ -556,6 +558,10 @@ export class VaultsService {
         );
       }
     }
+
+    this.logger.log(
+      `[VAULT FUND] Initiating Partna ramp: Ref:${rampReference}, PhoneID:${phoneID || 'none'}, Amount:${localAmount} ${currency}`,
+    );
 
     const rampResponse: any = await this.partnaService.createRamp({
       type: 'fiatToCrypto',
@@ -948,6 +954,7 @@ export class VaultsService {
     });
 
     // 2. Trigger Blockchain Deposit
+    // 2. Trigger Blockchain Deposit (Simulation)
     if (vault.vaultAddress) {
       try {
         this.logger.log(
@@ -967,6 +974,37 @@ export class VaultsService {
         this.logger.error(
           `[SIMULATION] Failed to trigger on-chain deposit`,
           error,
+        );
+      }
+    }
+
+    // 3. Send Notifications
+    const amountFormatted = ethers.formatUnits(
+      vault.totalAmount || BigInt(0),
+      vault.tokenDecimals || 6,
+    );
+
+    // Send Email to Client
+    await this.mailsService.sendVaultFundedEmail(
+      vault.client.email,
+      vault.client.name || 'Client',
+      vault.title,
+      amountFormatted,
+      false,
+    );
+
+    if (vault.freelancerId) {
+      const freelancer = await this.prisma.user.findUnique({
+        where: { id: vault.freelancerId },
+      });
+      if (freelancer) {
+        // Send Email to Freelancer
+        await this.mailsService.sendVaultFundedEmail(
+          freelancer.email,
+          freelancer.name || 'Freelancer',
+          vault.title,
+          amountFormatted,
+          true,
         );
       }
     }

@@ -211,11 +211,21 @@ export class WebhooksService {
             action: `/client/vault/${vault.id}`,
           });
 
+          const amountFormatted = ethers.formatUnits(
+            vault.totalAmount || BigInt(0),
+            vault.tokenDecimals || 6,
+          );
+
+          // Send Email to Client
+          await this.mailsService.sendVaultFundedEmail(
+            vault.client.email,
+            vault.client.name || 'Client',
+            vault.title,
+            amountFormatted,
+            false,
+          );
+
           if (vault.freelancerId) {
-            const amountFormatted = ethers.formatUnits(
-              vault.totalAmount || BigInt(0),
-              vault.tokenDecimals || 6,
-            );
             await this.notificationsService.createNotification(
               vault.freelancerId,
               {
@@ -225,6 +235,17 @@ export class WebhooksService {
                 action: `/freelancer/vault/${vault.id}`,
               },
             );
+
+            // Send Email to Freelancer
+            if (vault.freelancer) {
+              await this.mailsService.sendVaultFundedEmail(
+                vault.freelancer.email,
+                vault.freelancer.name || 'Freelancer',
+                vault.title,
+                amountFormatted,
+                true,
+              );
+            }
           }
 
           await this.handlePostFundingActions(vault.id);
@@ -577,6 +598,36 @@ export class WebhooksService {
             freelancerId: vault.freelancerId,
             status: VaultStatus.FUNDED,
           });
+
+          const amountFormatted = ethers.formatUnits(
+            vault.totalAmount || BigInt(0),
+            vault.tokenDecimals || 6,
+          );
+
+          // Send Email to Client
+          await this.mailsService.sendVaultFundedEmail(
+            vault.client.email,
+            vault.client.name || 'Client',
+            vault.title,
+            amountFormatted,
+            false,
+          );
+
+          if (vault.freelancerId) {
+            // Send Email to Freelancer
+            const freelancer = await this.prisma.user.findUnique({
+              where: { id: vault.freelancerId },
+            });
+            if (freelancer) {
+              await this.mailsService.sendVaultFundedEmail(
+                freelancer.email,
+                freelancer.name || 'Freelancer',
+                vault.title,
+                amountFormatted,
+                true,
+              );
+            }
+          }
 
           await this.handlePostFundingActions(vault.id);
         }
