@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { DisputeAiService } from './dispute-ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailsService } from '../notifications/mails.service';
 
 describe('DisputesController', () => {
   let controller: DisputesController;
@@ -32,6 +33,12 @@ describe('DisputesController', () => {
           provide: NotificationsService,
           useValue: {
             createNotification: jest.fn(),
+          },
+        },
+        {
+          provide: MailsService,
+          useValue: {
+            sendVaultStatusEmail: jest.fn(),
           },
         },
       ],

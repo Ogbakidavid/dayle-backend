@@ -15,24 +15,40 @@ export class MailProcessor extends WorkerHost {
     this.logger.log(`Processing job ${job.id} of type ${job.name}`);
 
     if (job.name === 'sendInvite') {
-      const { to, clientName, vaultTitle, amount, inviteToken } = job.data;
+      const { to, clientName, vaultTitle, amount, inviteToken, localCurrency, localAmount } = job.data;
       return this.mailsService.handleSendInviteEmail(
         to,
         clientName,
         vaultTitle,
         amount,
         inviteToken,
+        localCurrency,
+        localAmount,
       );
     }
 
     if (job.name === 'sendVaultFunded') {
-      const { to, userName, vaultTitle, amount, isFreelancer } = job.data;
+      const { to, userName, vaultTitle, amount, isFreelancer, localCurrency, localAmount } = job.data;
       return this.mailsService.handleSendVaultFundedEmail(
         to,
         userName,
         vaultTitle,
         amount,
         isFreelancer,
+        localCurrency,
+        localAmount,
+      );
+    }
+
+    if (job.name === 'sendVaultStatus') {
+      const { to, userName, vaultTitle, eventType, actionLink, otherPartyName } = job.data;
+      return this.mailsService.handleSendVaultStatusEmail(
+        to,
+        userName,
+        vaultTitle,
+        eventType,
+        actionLink,
+        otherPartyName,
       );
     }
   }

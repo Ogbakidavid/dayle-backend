@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailsService } from '../notifications/mails.service';
 
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import {
@@ -32,6 +33,7 @@ export class DisputesService {
     private prisma: PrismaService,
     private blockchainService: BlockchainService,
     private notificationsService: NotificationsService,
+    private mailsService: MailsService,
   ) {}
 
   private calculateNewExpiry(dispute: any): Date {
@@ -201,6 +203,23 @@ export class DisputesService {
 
       return newDispute;
     });
+
+    // 5. Send email notification to the other party
+    const otherPartyId = userId === vault.clientId ? vault.freelancerId : vault.clientId;
+    if (otherPartyId) {
+      const otherUser = await this.prisma.user.findUnique({ where: { id: otherPartyId } });
+      const openingUser = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (otherUser) {
+        await this.mailsService.sendVaultStatusEmail(
+          otherUser.email,
+          otherUser.name || 'User',
+          vault.title,
+          'dispute_raised',
+          `/${userId === vault.clientId ? 'freelancer' : 'client'}/dispute/${dispute.id}`,
+          openingUser?.name || 'The other party',
+        );
+      }
+    }
 
     return dispute;
   }

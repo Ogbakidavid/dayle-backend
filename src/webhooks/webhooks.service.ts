@@ -227,6 +227,8 @@ export class WebhooksService {
             vault.title,
             amountFormatted,
             false,
+            vault.localCurrency || undefined,
+            vault.localAmount || undefined,
           );
 
           if (vault.freelancerId) {
@@ -248,6 +250,8 @@ export class WebhooksService {
                 vault.title,
                 amountFormatted,
                 true,
+                vault.localCurrency || undefined,
+                vault.localAmount || undefined,
               );
             }
           }
@@ -615,6 +619,8 @@ export class WebhooksService {
             vault.title,
             amountFormatted,
             false,
+            vault.localCurrency || undefined,
+            vault.localAmount || undefined,
           );
 
           if (vault.freelancerId) {
@@ -629,6 +635,8 @@ export class WebhooksService {
                 vault.title,
                 amountFormatted,
                 true,
+                vault.localCurrency || undefined,
+                vault.localAmount || undefined,
               );
             }
           }
@@ -869,6 +877,8 @@ export class WebhooksService {
           vault.title,
           amount,
           invite.token,
+          vault.localCurrency || undefined,
+          vault.localAmount || undefined,
         );
       } catch (error) {
         this.logger.error(

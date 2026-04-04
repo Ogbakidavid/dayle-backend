@@ -208,19 +208,29 @@ export class VaultsService {
     });
 
     // 4. Create a pending invite for the freelancer (always required for acceptance flow)
-    // The actual email will be sent post-funding via WebhooksService
     if (dto.freelancerEmail) {
       try {
         this.logger.log(
           `Creating pending invitation for ${dto.freelancerEmail}...`,
         );
-        await this.invitesService.create(
+        const invite = await this.invitesService.create(
           {
             vaultId: vault.id,
             email: dto.freelancerEmail,
             expiresInDays: 7,
           },
           userId,
+        );
+
+        // Send invitation email immediately
+        await this.mailsService.sendInviteEmail(
+          dto.freelancerEmail,
+          vault.client?.name || 'A client',
+          vault.title,
+          dto.totalAmount,
+          invite.token,
+          dto.localCurrency || undefined,
+          dto.localAmount || undefined,
         );
       } catch (error) {
         this.logger.error(
@@ -367,7 +377,7 @@ export class VaultsService {
     if (vault.clientId !== userId)
       throw new ForbiddenException('Not authorized');
 
-    if (vault.client.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
+    if (vault.client.kycStatus !== KycStatus.VERIFIED && this.configService.get('TESTNET_MODE') !== 'true') {
       throw new BadRequestException(
         'KYC verification must be completed before funding.',
       );
@@ -690,7 +700,7 @@ export class VaultsService {
       throw new ForbiddenException('Not authorized');
 
     if (
-      (vault.freelancer?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') ||
+      (vault.freelancer?.kycStatus !== KycStatus.VERIFIED && this.configService.get('TESTNET_MODE') !== 'true') ||
       !vault.freelancer?.paymentAccountReady
     ) {
       throw new BadRequestException(
@@ -1002,6 +1012,8 @@ export class VaultsService {
       vault.title,
       amountFormatted,
       false,
+      vault.localCurrency || undefined,
+      vault.localAmount || undefined,
     );
 
     if (vault.freelancerId) {
@@ -1016,6 +1028,28 @@ export class VaultsService {
           vault.title,
           amountFormatted,
           true,
+          vault.localCurrency || undefined,
+          vault.localAmount || undefined,
+        );
+      }
+    } else {
+      // Check for a pending invite and send invitation email
+      const invite = await this.prisma.invite.findFirst({
+        where: { vaultId: vault.id, status: InviteStatus.PENDING },
+      });
+
+      if (invite) {
+        this.logger.log(
+          `Vault funded (local). Sending invitation email to guest freelancer ${invite.email}...`,
+        );
+        await this.mailsService.sendInviteEmail(
+          invite.email,
+          vault.client?.name || 'A client',
+          vault.title,
+          Number(amountFormatted),
+          invite.token,
+          vault.localCurrency || undefined,
+          vault.localAmount || undefined,
         );
       }
     }
@@ -1111,6 +1145,20 @@ export class VaultsService {
       action: `/client/vault/${vaultId}`,
     });
 
+    // Send email to client
+    const client = await this.prisma.user.findUnique({ where: { id: vault.clientId } });
+    const freelancer = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (client) {
+      await this.mailsService.sendVaultStatusEmail(
+        client.email,
+        client.name || 'Client',
+        vault.title,
+        'work_submitted',
+        `/client/vault/${vaultId}`,
+        freelancer?.name || 'The freelancer',
+      );
+    }
+
     if (dto.idempotencyKey) {
       await this.redis.set(
         `idempotency:${dto.idempotencyKey}`,
@@ -1151,7 +1199,7 @@ export class VaultsService {
     const client = await this.prisma.user.findUnique({
       where: { id: userId },
     });
-    if (client?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
+    if (client?.kycStatus !== KycStatus.VERIFIED && this.configService.get('TESTNET_MODE') !== 'true') {
       throw new BadRequestException({
         code: 'KYC_REQUIRED',
         message: 'Identity verification (Tier 2) is required to release funds.',
@@ -1176,6 +1224,22 @@ export class VaultsService {
       );
     } else {
       this.logger.warn(`Vault release queue not available. Skipping background job for vault ${vaultId}`);
+    }
+
+    // Send email to freelancer
+    if (vault.freelancerId) {
+      const freelancer = await this.prisma.user.findUnique({ where: { id: vault.freelancerId } });
+      const client = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (freelancer) {
+        await this.mailsService.sendVaultStatusEmail(
+          freelancer.email,
+          freelancer.name || 'Freelancer',
+          vault.title,
+          'vault_released',
+          `/freelancer/vault/${vaultId}`,
+          client?.name || 'The client',
+        );
+      }
     }
 
     return {
@@ -1259,6 +1323,21 @@ export class VaultsService {
       data: { status: dto.status as any },
     });
 
+    if (dto.status === VaultStatus.CHANGES_REQUESTED && updatedVault.freelancerId) {
+      const freelancer = await this.prisma.user.findUnique({ where: { id: updatedVault.freelancerId } });
+      const client = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (freelancer) {
+        await this.mailsService.sendVaultStatusEmail(
+          freelancer.email,
+          freelancer.name || 'Freelancer',
+          updatedVault.title,
+          'changes_requested',
+          `/freelancer/vault/${id}`,
+          client?.name || 'The client',
+        );
+      }
+    }
+
     await this.invalidateVaultCache(id, userId, updatedVault.freelancerId);
     return this.formatVault(updatedVault);
   }
@@ -1289,6 +1368,20 @@ export class VaultsService {
       message: `The freelancer has requested a release for vault "${vault.title}". Please review the work and release the funds.`,
       action: `/client/vault/${vaultId}`,
     });
+
+    // Send email to client
+    const client = await this.prisma.user.findUnique({ where: { id: vault.clientId } });
+    const freelancer = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (client) {
+      await this.mailsService.sendVaultStatusEmail(
+        client.email,
+        client.name || 'Client',
+        vault.title,
+        'release_requested',
+        `/client/vault/${vaultId}`,
+        freelancer?.name || 'The freelancer',
+      );
+    }
 
     return { message: 'Release request sent to the client' };
   }
@@ -1380,7 +1473,7 @@ export class VaultsService {
 
     // Enforce Tier 2 KYC for refund requests
     const client = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (client?.kycStatus !== KycStatus.VERIFIED && process.env.TESTNET_MODE !== 'true') {
+    if (client?.kycStatus !== KycStatus.VERIFIED && this.configService.get('TESTNET_MODE') !== 'true') {
       throw new BadRequestException(
         'Identity verification (Tier 2) is required to request a refund.',
       );

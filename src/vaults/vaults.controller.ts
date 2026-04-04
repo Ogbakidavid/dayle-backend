@@ -24,10 +24,11 @@ import { UpdateFreelancerDto } from './dto/update-freelancer.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { User } from '../common/decorators/user.decorator';
 import { UserRole } from '../domain/enums';
+import { ConfigService } from '@nestjs/config';
 
 @Controller('vaults')
 export class VaultsController {
-  constructor(private vaultsService: VaultsService) {}
+  constructor(private vaultsService: VaultsService, private configService: ConfigService) {}
 
   @Post()
   @Roles(UserRole.CLIENT)
@@ -94,8 +95,8 @@ export class VaultsController {
     @Body() body: { amount?: number; accountName?: string },
   ) {
     if (
-      process.env.NODE_ENV === 'production' &&
-      process.env.TESTNET_MODE !== 'true'
+      this.configService.get('NODE_ENV') === 'production' &&
+      this.configService.get('TESTNET_MODE') !== 'true'
     ) {
       throw new ForbiddenException(
         'Mock deposit is only available in development or testnet mode',

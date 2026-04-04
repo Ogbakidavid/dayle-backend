@@ -87,7 +87,15 @@ describe('VaultsService', () => {
           },
         },
         {
-          provide: getQueueToken('withdrawal-retry'),
+          provide: getQueueToken('vault-withdrawal'),
+          useValue: { add: jest.fn() },
+        },
+        {
+          provide: getQueueToken('vault-release'),
+          useValue: { add: jest.fn() },
+        },
+        {
+          provide: getQueueToken('vault-refund'),
           useValue: { add: jest.fn() },
         },
       ],

@@ -3,6 +3,7 @@ import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailsService } from '../notifications/mails.service';
 import {
   ResolveDisputeDto,
   DisputeResolutionOutcome,
@@ -63,6 +64,12 @@ describe('DisputesService Adjudication', () => {
           provide: NotificationsService,
           useValue: {
             createNotification: jest.fn(),
+          },
+        },
+        {
+          provide: MailsService,
+          useValue: {
+            sendVaultStatusEmail: jest.fn(),
           },
         },
       ],

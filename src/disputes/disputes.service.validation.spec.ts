@@ -3,6 +3,7 @@ import { DisputesService } from './disputes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailsService } from '../notifications/mails.service';
 import { BadRequestException } from '@nestjs/common';
 import { DisputeStatus, UserRole, KycStatus } from '../domain/enums';
 
@@ -70,6 +71,12 @@ describe('DisputesService Timer and Escalation', () => {
           provide: NotificationsService,
           useValue: {
             createNotification: jest.fn(),
+          },
+        },
+        {
+          provide: MailsService,
+          useValue: {
+            sendVaultStatusEmail: jest.fn(),
           },
         },
       ],

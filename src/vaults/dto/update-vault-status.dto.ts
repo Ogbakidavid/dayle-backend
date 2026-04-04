@@ -2,7 +2,7 @@ import { IsEnum, IsString, IsOptional, MaxLength } from 'class-validator';
 import { VaultStatus } from '../../domain/enums';
 
 export class UpdateVaultStatusDto {
-  @IsEnum([VaultStatus.CANCELLED])
+  @IsEnum([VaultStatus.CANCELLED, VaultStatus.CHANGES_REQUESTED])
   status: VaultStatus;
 
   @IsString()
