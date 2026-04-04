@@ -168,7 +168,7 @@ describe('OnboardingService - submitIdentity', () => {
     expect(partnaService.initiateKyc).toHaveBeenCalledWith({
       accountName,
       kesMobileNetwork: 'MPESA',
-      kesShortcode: '712345678',
+      kesShortcode: '0712345678',
     });
 
     expect(prisma.user.update).toHaveBeenCalledWith({

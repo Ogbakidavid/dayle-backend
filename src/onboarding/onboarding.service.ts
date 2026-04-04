@@ -555,17 +555,10 @@ export class OnboardingService {
               (accountData as any).id ||
               'REF-KE-PENDING'
             ),
+            kycStatus: 'VERIFIED',
           },
         });
         return this.sanitizeUser(updatedUser);
-      } catch (err) {
-        this.logger.error(
-          `[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`,
-        );
-        throw new BadRequestException(
-          "We couldn't set up your payment account. Please check your phone number and try again.",
-        );
-      }
       } catch (err) {
         this.logger.error(
           `[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`,
