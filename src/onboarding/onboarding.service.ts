@@ -51,13 +51,32 @@ export class OnboardingService {
       throw new NotFoundException('User not found');
     }
 
-    const accountName = userId.replace(/-/g, '').toLowerCase();
+    const accountName = `dy${userId.replace(/-/g, '').toLowerCase()}`;
+    
+    // Check if email already exists on Partna first
+    try {
+      const existingAccounts = await this.partnaService.getAccountDetails();
+      const existing = existingAccounts.find(
+        (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+      );
+      
+      if (existing) {
+        const recoveredName = existing.externalRef || existing.accountName || existing.account_name;
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { partnaCustomerId: String(recoveredName) },
+        });
+        return { success: true, partnaCustomerId: String(recoveredName), note: 'Recovered existing account' };
+      }
+    } catch (e) {
+      this.logger.warn(`[PARTNA INIT LOOKUP] Could not check existing accounts: ${e.message}`);
+    }
 
     try {
       this.logger.log(
         `[INITIALIZE PARTNA ACCOUNT] User ${userId}, accountName: ${accountName}`,
       );
-      // Create the Partna account/profile
+      // No existing account found or lookup failed — create the Partna account/profile
       await this.partnaService.createAccount(accountName, user.email);
 
       // Store the accountName as partnaCustomerId immediately
@@ -71,7 +90,7 @@ export class OnboardingService {
       this.logger.error(
         `[PARTNA ACCOUNT INITIALIZATION FAILED] User ${userId}: ${e.message}`,
       );
-      // Handle "already exists" elegantly - often returns 400 or has specific msg
+      // Handle "already exists" elegantly
       if (e.message.includes('exists')) {
         return {
           success: true,
@@ -337,8 +356,53 @@ export class OnboardingService {
 
       try {
         // 1. [PARTNA PROFILE CREATION & RECOVERY]
-        const accountRes = await this.partnaService.createAccount(accountName, user.email);
-        const finalAccountName = (accountRes.data as any).accountName || accountName;
+        let finalAccountName = accountName; // accountName = `dy${userId...}`
+
+        // FIRST: Check if this email already has a Partna account
+        // This handles DB wipe / re-registration scenarios
+        try {
+          const existingAccounts = await this.partnaService.getAccountDetails();
+          const existingAccount = existingAccounts.find(
+            (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+          );
+          
+          if (existingAccount) {
+            // Email already registered on Partna — recover the existing externalRef
+            finalAccountName = String(existingAccount.externalRef || existingAccount.accountName || existingAccount.account_name);
+            this.logger.log(`[PARTNA RECOVERY] Existing account found for ${user.email}. Using externalRef: ${finalAccountName}`);
+            
+            // Update DB immediately so partnaCustomerId is correct going forward
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { partnaCustomerId: finalAccountName },
+            });
+          } else {
+            // No existing account — create new one
+            try {
+              const accountRes = await this.partnaService.createAccount(finalAccountName, user.email);
+              finalAccountName = (accountRes.data as any).accountName || finalAccountName;
+            } catch (e: any) {
+              if (!e.message.includes('exists')) throw e;
+              // If still conflicts, do one more lookup
+              const retryAccounts = await this.partnaService.getAccountDetails();
+              const retryMatch = retryAccounts.find(
+                (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+              );
+              if (retryMatch) {
+                finalAccountName = String(retryMatch.externalRef || retryMatch.accountName || retryMatch.account_name);
+                this.logger.log(`[PARTNA RECOVERY RETRY] Recovered: ${finalAccountName}`);
+              }
+            }
+          }
+        } catch (lookupError: any) {
+          this.logger.error(`[PARTNA LOOKUP FAILED] ${lookupError.message}. Proceeding with new account creation.`);
+          // Fallback: try creating the account directly
+          try {
+            await this.partnaService.createAccount(finalAccountName, user.email);
+          } catch (e: any) {
+            if (!e.message.includes('exists')) throw e;
+          }
+        }
 
         // 2. [SYNC EXISTING DATA]
         const accountsDetails = await this.partnaService.getAccountDetails();
@@ -403,38 +467,53 @@ export class OnboardingService {
         throw new BadRequestException('Phone number is required');
 
       try {
-        // 1. [PARTNA PROFILE CREATION & RECOVERY] - Now handles 409 automatically
-        const accountResKe = await this.partnaService.createAccount(
-          accountName,
-          user.email,
-        );
-        const finalAccountName = (accountResKe.data as any).accountName || accountName;
+        // 1. [PARTNA PROFILE CREATION & RECOVERY - KENYA]
+        let finalAccountName = accountName; // accountName = `dy${userId...}`
 
-        // 2. [SYNC EXISTING DATA]
-        const accountsDetails = await this.partnaService.getAccountDetails();
-        const existingAccount = accountsDetails.find(
-          (acc: any) => acc.currency === 'KES',
-        );
+        // Check if email already has a Partna account before creating
+        try {
+          const existingAccounts = await this.partnaService.getAccountDetails();
+          const existingAccount = existingAccounts.find(
+            (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+          );
 
-        if (existingAccount && existingAccount.status === 'ACTIVE') {
-          this.logger.log(`[PARTNA AUTO-SYNC] Existing KES account found for ${user.email}. Skipping KYC.`);
-          const updatedUser = await this.prisma.user.update({
-            where: { id: userId },
-            data: {
-              paymentAccountReady: true,
-              partnaCustomerId: finalAccountName,
-              partnaAccountRef: String(existingAccount.accountNumber || existingAccount.externalRef || 'REF-SYNC'),
-              kycStatus: 'VERIFIED',
-              country: 'Kenya',
-            },
-          });
-          return this.sanitizeUser(updatedUser);
+          if (existingAccount) {
+            finalAccountName = String(existingAccount.externalRef || existingAccount.accountName || existingAccount.account_name);
+            this.logger.log(`[PARTNA KE RECOVERY] Existing account found for ${user.email}. Using externalRef: ${finalAccountName}`);
+
+            // Update DB immediately so partnaCustomerId is correct
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { partnaCustomerId: finalAccountName },
+            });
+          } else {
+            // No existing account — create new
+            try {
+              await this.partnaService.createAccount(finalAccountName, user.email);
+            } catch (e: any) {
+              if (!e.message.includes('exists')) throw e;
+              // Race condition fallback
+              const retryAccounts = await this.partnaService.getAccountDetails();
+              const retryMatch = retryAccounts.find(
+                (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+              );
+              if (retryMatch) {
+                finalAccountName = String(retryMatch.externalRef || retryMatch.accountName || retryMatch.account_name);
+                this.logger.log(`[PARTNA KE RECOVERY RETRY] Recovered: ${finalAccountName}`);
+              }
+            }
+          }
+        } catch (lookupError: any) {
+          this.logger.error(`[PARTNA KE LOOKUP FAILED] ${lookupError.message}. Proceeding with new account.`);
+          try {
+            await this.partnaService.createAccount(finalAccountName, user.email);
+          } catch (e: any) {
+            if (!e.message.includes('exists')) throw e;
+          }
         }
 
-        // 2. [PARTNA PHONE KYC]
-        // Sanitize phone for Kenya: +254712345678 -> 712345678 (remove prefix and leading zero)
-        const sanitizedPhone = phoneToUse.replace('+254', '').replace(/^0/, '');
-
+        // 2. [PARTNA PHONE KYC] - uses finalAccountName (now correctly recovered or newly created)
+        const sanitizedPhone = phoneToUse.replace('+254', '0');
         const kycRes = await this.partnaService.initiateKyc({
           accountName: finalAccountName,
           kesMobileNetwork: 'MPESA',
@@ -457,13 +536,10 @@ export class OnboardingService {
         }
 
         // 4. [PARTNA VIRTUAL ACCOUNT CREATION]
-        // Create KES virtual account
         const accountRes = await this.partnaService
           .createVirtualAccount(finalAccountName, 'KES')
           .catch((err) => {
-            this.logger.warn(
-              `[KE VIRTUAL ACCOUNT FAILED] ${err.message}. This might be expected if KES accounts are manual.`,
-            );
+            this.logger.warn(`[KE VIRTUAL ACCOUNT FAILED] ${err.message}`);
             return { data: [] };
           });
         const accountData = accountRes.data?.[0] || accountRes.data || {};
@@ -474,13 +550,22 @@ export class OnboardingService {
             phoneNumber: phoneToUse,
             paymentAccountReady: true,
             partnaCustomerId: finalAccountName,
-            partnaAccountRef:
+            partnaAccountRef: String(
               (accountData as any).accountNumber ||
               (accountData as any).id ||
-              'REF-KE-PENDING',
+              'REF-KE-PENDING'
+            ),
           },
         });
         return this.sanitizeUser(updatedUser);
+      } catch (err) {
+        this.logger.error(
+          `[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`,
+        );
+        throw new BadRequestException(
+          "We couldn't set up your payment account. Please check your phone number and try again.",
+        );
+      }
       } catch (err) {
         this.logger.error(
           `[PHONE VERIFICATION FAILED] User ${userId}: ${err.message}`,

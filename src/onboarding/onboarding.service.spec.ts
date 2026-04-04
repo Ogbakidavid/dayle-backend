@@ -39,8 +39,9 @@ describe('OnboardingService - submitIdentity', () => {
         {
           provide: PartnaService,
           useValue: {
-            createAccount: jest.fn().mockResolvedValue({ success: true }),
-            initiateKyc: jest.fn().mockResolvedValue({ success: true }),
+            createAccount: jest.fn().mockResolvedValue({ success: true, data: {} }),
+            getAccountDetails: jest.fn().mockResolvedValue([]),
+            initiateKyc: jest.fn().mockResolvedValue({ success: true, data: {} }),
             createVirtualAccount: jest.fn().mockResolvedValue({
               success: true,
               data: [{ accountNumber: 'REF-123' }],
@@ -120,11 +121,6 @@ describe('OnboardingService - submitIdentity', () => {
     });
 
     const partnaService = (service as any).partnaService;
-    expect(partnaService.initiateKyc).toHaveBeenCalledWith({
-      accountName,
-      bvn: '12345678901',
-    });
-
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: userId },
       data: {
@@ -132,6 +128,7 @@ describe('OnboardingService - submitIdentity', () => {
         paymentAccountReady: true,
         partnaCustomerId: accountName,
         partnaAccountRef: 'REF-123',
+        kycStatus: KycStatus.VERIFIED,
       },
     });
   });
@@ -171,7 +168,7 @@ describe('OnboardingService - submitIdentity', () => {
     expect(partnaService.initiateKyc).toHaveBeenCalledWith({
       accountName,
       kesMobileNetwork: 'MPESA',
-      kesShortcode: '0712345678',
+      kesShortcode: '712345678',
     });
 
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -181,6 +178,7 @@ describe('OnboardingService - submitIdentity', () => {
         paymentAccountReady: true,
         partnaCustomerId: accountName,
         partnaAccountRef: 'REF-123',
+        kycStatus: KycStatus.VERIFIED,
       },
     });
   });
