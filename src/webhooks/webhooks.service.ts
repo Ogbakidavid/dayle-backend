@@ -171,10 +171,14 @@ export class WebhooksService {
               this.logger.log(
                 `Partna-to-Blockchain bridge successful: ${blockchainTxHash}`,
               );
-            } catch (error) {
-              this.logger.error(
-                `Critical: Failed to land funds on-chain for Partna Vault ${vault.id}: ${error.message}`,
-              );
+            } catch (error: any) {
+              if (error.message?.includes('Vault already funded or invalid state')) {
+                this.logger.log(`Partna bridge: Vault ${vault.id} already funded on-chain. Syncing complete.`);
+              } else {
+                this.logger.error(
+                  `Critical: Failed to land funds on-chain for Partna Vault ${vault.id}: ${error.message}`,
+                );
+              }
             }
           }
 

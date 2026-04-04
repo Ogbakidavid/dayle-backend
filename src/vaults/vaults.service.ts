@@ -1019,6 +1019,18 @@ export class VaultsService {
         );
       }
     }
+
+    // 4. Invalidate Cache
+    const keys = [
+      `vaults:detail:${vault.id}`,
+      `vaults:list:CLIENT:${vault.clientId}`,
+    ];
+    if (vault.freelancerId) {
+      keys.push(`vaults:list:FREELANCER:${vault.freelancerId}`);
+    }
+    await Promise.all(keys.map((k) => this.redis.del(k)));
+
+    this.logger.log(`[SIMULATION] Cache invalidated for vault ${vault.id}`);
   }
 
   /** @deprecated Legacy v2 flow */
