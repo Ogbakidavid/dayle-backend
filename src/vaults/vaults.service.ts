@@ -860,13 +860,26 @@ export class VaultsService {
     let mockResponse: any;
 
     if (isFiat) {
-      // Onramp simulation should use the fiat-specific mock endpoint with minimal payload.
-      mockResponse = await this.partnaService.mockDepositFiat({
-        accountName: finalAccountName,
-        amount: Number(mockAmount),
-        currency: mockCurrency,
-        username: businessUsername || undefined,
-      });
+      if (
+        mockCurrency === 'KES' &&
+        this.configService.get('TESTNET_MODE') === 'true'
+      ) {
+        this.logger.log(
+          `[VAULT MOCK] KES mock skipped (Partna v4 limitation). Simulating internally...`,
+        );
+        mockResponse = {
+          success: true,
+          message: 'Simulated KES mock deposit internally',
+        };
+      } else {
+        // Onramp simulation should use the fiat-specific mock endpoint with minimal payload.
+        mockResponse = await this.partnaService.mockDepositFiat({
+          accountName: finalAccountName,
+          amount: Number(mockAmount),
+          currency: mockCurrency,
+          username: businessUsername || undefined,
+        });
+      }
     } else {
       // Crypto simulations continue to use the generic mock deposit endpoint.
       mockResponse = await this.partnaService.mockDeposit({
