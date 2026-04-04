@@ -988,7 +988,12 @@ export class VaultsService {
         );
       } catch (error: any) {
         // If the contract says it's already funded, we can treat it as success for the DB simulation
-        if (error.message?.includes('Vault already funded or invalid state')) {
+        const isAlreadyFunded = 
+          error.message?.includes('already funded') || 
+          error.reason?.includes('already funded') ||
+          error.data?.includes('already funded');
+
+        if (isAlreadyFunded) {
           this.logger.log(`[SIMULATION] Vault already funded on-chain. Syncing DB...`);
         } else {
           this.logger.error(
@@ -997,6 +1002,18 @@ export class VaultsService {
           );
         }
       }
+    }
+
+    // Invalidate Cache for consistency
+    try {
+      await this.invalidateVaultCache(
+        vault.id,
+        vault.clientId,
+        vault.freelancerId,
+      );
+      this.logger.log(`[VAULT FUND] Cache invalidated for vault:${vault.id}`);
+    } catch (cacheErr) {
+      this.logger.error(`[VAULT FUND] Failed to invalidate cache`, cacheErr);
     }
 
     // 3. Send Notifications
