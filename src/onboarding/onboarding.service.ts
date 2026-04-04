@@ -379,8 +379,13 @@ export class OnboardingService {
           } else {
             // No existing account — create new one
             try {
-              const accountRes = await this.partnaService.createAccount(finalAccountName, user.email);
-              finalAccountName = (accountRes.data as any).accountName || finalAccountName;
+              const accountRes = await this.partnaService.createAccount(
+                finalAccountName,
+                user.email,
+                user.name,
+              );
+              finalAccountName =
+                (accountRes.data as any).accountName || finalAccountName;
             } catch (e: any) {
               if (!e.message.includes('exists')) throw e;
               // If still conflicts, do one more lookup
@@ -398,7 +403,11 @@ export class OnboardingService {
           this.logger.error(`[PARTNA LOOKUP FAILED] ${lookupError.message}. Proceeding with new account creation.`);
           // Fallback: try creating the account directly
           try {
-            await this.partnaService.createAccount(finalAccountName, user.email);
+            await this.partnaService.createAccount(
+              finalAccountName,
+              user.email,
+              user.name,
+            );
           } catch (e: any) {
             if (!e.message.includes('exists')) throw e;
           }
@@ -510,24 +519,41 @@ export class OnboardingService {
           } else {
             // No existing account — create new
             try {
-              await this.partnaService.createAccount(finalAccountName, user.email);
+              await this.partnaService.createAccount(
+                finalAccountName,
+                user.email,
+                user.name,
+              );
             } catch (e: any) {
               if (!e.message.includes('exists')) throw e;
               // Race condition fallback
               const retryAccounts = await this.partnaService.getAccountDetails();
               const retryMatch = retryAccounts.find(
-                (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
+                (acc: any) =>
+                  (acc.email || '').toLowerCase() === user.email.toLowerCase(),
               );
               if (retryMatch) {
-                finalAccountName = String(retryMatch.externalRef || retryMatch.accountName || retryMatch.account_name);
-                this.logger.log(`[PARTNA KE RECOVERY RETRY] Recovered: ${finalAccountName}`);
+                finalAccountName = String(
+                  retryMatch.externalRef ||
+                    retryMatch.accountName ||
+                    retryMatch.account_name,
+                );
+                this.logger.log(
+                  `[PARTNA KE RECOVERY RETRY] Recovered: ${finalAccountName}`,
+                );
               }
             }
           }
         } catch (lookupError: any) {
-          this.logger.error(`[PARTNA KE LOOKUP FAILED] ${lookupError.message}. Proceeding with new account.`);
+          this.logger.error(
+            `[PARTNA KE LOOKUP FAILED] ${lookupError.message}. Proceeding with new account.`,
+          );
           try {
-            await this.partnaService.createAccount(finalAccountName, user.email);
+            await this.partnaService.createAccount(
+              finalAccountName,
+              user.email,
+              user.name,
+            );
           } catch (e: any) {
             if (!e.message.includes('exists')) throw e;
           }

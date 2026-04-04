@@ -281,17 +281,19 @@ export class PartnaService {
   async createAccount(
     accountName: string,
     email: string,
+    fullName?: string,
     type: string = 'personal',
   ) {
     const sanitizedName = this.sanitizeAccountName(accountName);
     this.logger.log(
-      `[PARTNA CREATE ACCOUNT REQUEST] accountName: ${sanitizedName}, email: ${email}`,
+      `[PARTNA CREATE ACCOUNT REQUEST] accountName: ${sanitizedName}, email: ${email}, fullName: ${fullName}`,
     );
     const res = await this.request('/account', {
       method: 'POST',
       body: JSON.stringify({
         accountName: sanitizedName,
         email,
+        full_name: fullName,
         type,
       }),
     }).catch(async (err) => {
