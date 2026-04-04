@@ -606,11 +606,11 @@ export class VaultsService {
             ?.replace(/[^a-zA-Z0-9]/g, '')
             .toLowerCase() || null,
         partnaAccountNumber:
-          typeof rampData.accountNumber === 'string'
+          (typeof rampData.accountNumber === 'string'
             ? rampData.accountNumber
-            : null,
+            : null) || (typeof rampData.kesShortcode === 'string' ? rampData.kesShortcode : null),
         partnaBankName:
-          typeof rampData.bankName === 'string' ? rampData.bankName : null,
+          (typeof rampData.bankName === 'string' ? rampData.bankName : null) || (currency === 'KES' ? 'M-Pesa / Mobile Money' : null),
         partnaExpiryDate: new Date(expiryTimestamp * 1000),
         partnaExpectedAmount: toAmount,
         partnaFromAmount: fromAmount,
@@ -657,9 +657,9 @@ export class VaultsService {
 
     return {
       bankDetails: {
-        bankName: rampData.bankName,
-        accountNumber: rampData.accountNumber,
-        accountName: rampData.accountName,
+        bankName: (typeof rampData.bankName === 'string' ? rampData.bankName : null) || (currency === 'KES' ? 'M-Pesa / Mobile Money' : null),
+        accountNumber: (typeof rampData.accountNumber === 'string' ? rampData.accountNumber : null) || (typeof rampData.kesShortcode === 'string' ? rampData.kesShortcode : null),
+        accountName: resolvedAccountName || partnaAccountName,
         amount: fromAmount,
         currency: currency,
         reference: rampReference,
