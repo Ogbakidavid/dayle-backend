@@ -79,8 +79,8 @@ export class WebhooksService {
     }
 
     const data = payload.data || payload;
-    const { reference, rampReference, status, type } = data;
-    const ref = rampReference || reference;
+    const { reference, rampReference, transactionReference, status, type } = data;
+    const ref = rampReference || reference || transactionReference;
 
     if (!ref) {
       this.logger.warn('Partna webhook missing reference');
