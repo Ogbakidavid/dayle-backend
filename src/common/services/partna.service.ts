@@ -322,10 +322,15 @@ export class PartnaService {
     kesMobileNetwork?: string;
     kesShortcode?: string;
   }) {
-    const sanitizedParams = {
+    const sanitizedParams: any = {
       ...params,
       accountName: this.sanitizeAccountName(params.accountName),
     };
+
+    // Map 'MPESA' to 'Safaricom' as Partna v4 only accepts carriers (Safaricom, Airtel, Telkom)
+    if (sanitizedParams.kesMobileNetwork === 'MPESA') {
+      sanitizedParams.kesMobileNetwork = 'Safaricom';
+    }
     this.logger.log(`[PARTNA KYC REQUEST] ${JSON.stringify(sanitizedParams)}`);
     const res = await this.request('/kyc', {
       method: 'POST',

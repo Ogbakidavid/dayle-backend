@@ -475,8 +475,8 @@ export class OnboardingService {
         }
 
         // 2. [PARTNA PHONE KYC]
-        // Sanitize phone for Kenya: +254712345678 -> 0712345678 (10 digits)
-        const sanitizedPhone = phoneToUse.replace('+254', '0');
+        // Sanitize phone for Kenya: +254712345678 -> 712345678 (remove prefix and leading zero)
+        const sanitizedPhone = phoneToUse.replace('+254', '').replace(/^0/, '');
 
         const kycRes = await this.partnaService.initiateKyc({
           accountName: finalAccountName,
