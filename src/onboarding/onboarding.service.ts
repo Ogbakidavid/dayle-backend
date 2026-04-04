@@ -560,38 +560,37 @@ export class OnboardingService {
         }
 
         // 2. [PARTNA PHONE KYC - KENYA]
-        let kycRes: any = null;
+        let phoneRes: any = null;
         try {
           const sanitizedPhone = phoneToUse.replace('+254', '0');
-          kycRes = await this.partnaService.initiateKyc({
+          phoneRes = await this.partnaService.initiatePhoneVerification({
+            country: 'KE',
             accountName: finalAccountName,
-            kesMobileNetwork: 'MPESA',
-            kesShortcode: sanitizedPhone,
+            phoneNumber: sanitizedPhone,
+            mobileNetwork: 'Safaricom', // Default for Kenya
           });
-        } catch (kycError: any) {
-          if (
-            kycError.message?.toLowerCase().includes('kyc previously completed') ||
-            kycError.message?.toLowerCase().includes('previously completed')
-          ) {
-            this.logger.log(`[PARTNA KE KYC] Already completed for ${finalAccountName}.`);
-            kycRes = { data: null };
-          } else {
-            throw kycError;
-          }
+        } catch (phoneError: any) {
+          this.logger.error(`[PARTNA KE PHONE VERIFY FAILED] ${phoneError.message}`);
+          throw phoneError;
         }
 
-        // 3. [CHECK FOR OTP REQUIREMENT]
-        if (kycRes?.data?.methods) {
+        // 3. [SELECT VERIFICATION METHOD & STORE phoneID]
+        if (phoneRes?.data?.phoneID) {
+          const phoneID = phoneRes.data.phoneID;
+          await this.partnaService.selectPhoneVerificationMethod(phoneID);
+
           await this.prisma.user.update({
             where: { id: userId },
             data: {
               phoneNumber: phoneToUse,
               partnaCustomerId: finalAccountName,
+              partnaAccountRef: phoneID, // Temporarily store phoneID here for Kenya
             },
           });
+
           return {
             requiresOtp: true,
-            methods: kycRes.data.methods,
+            methods: [{ type: 'SMS', value: phoneToUse }], // Partna v4 phone flow implicitly uses SMS
           };
         }
 
@@ -666,37 +665,54 @@ export class OnboardingService {
     // 1. Verify OTP with Partna
     const currency = user.country === 'KE' ? 'KES' : 'NGN';
     try {
-      await this.partnaService.verifyKycOtp(
-        user.partnaCustomerId,
-        otp,
-        currency,
-      );
+      if (currency === 'KES') {
+        // Use new /phone/confirm for Kenya
+        if (!user.partnaAccountRef) {
+          throw new BadRequestException('Phone ID missing for Kenya verification');
+        }
+        await this.partnaService.confirmPhoneOtp(user.partnaAccountRef, otp);
+      } else {
+        await this.partnaService.verifyKycOtp(
+          user.partnaCustomerId,
+          otp,
+          currency,
+        );
+      }
     } catch (err: any) {
       this.logger.error(`[KYC OTP ERROR] ${err.message}`);
       throw new BadRequestException(err.message);
     }
 
     // 2. Step 6: Create Virtual Account after successful verification (using PUT /v4/account)
+    // For Kenya, we might still want this or just use the phoneID
     const accountRes = await this.partnaService
       .createVirtualAccount(user.partnaCustomerId, currency)
       .catch((err) => {
+        // Non-critical for Kenya if phone verification succeeded
         this.logger.error(`[STEP 6 VIRTUAL ACCOUNT FAILED] ${err.message}`);
-        throw new BadRequestException(
-          `KYC verified but virtual account creation failed: ${err.message}`,
-        );
+        if (currency !== 'KES') {
+          throw new BadRequestException(
+            `KYC verified but virtual account creation failed: ${err.message}`,
+          );
+        }
+        return { data: { accountNumber: user.partnaAccountRef } };
       });
 
     // 3. Mark user as ready and store reference
     const accountData = accountRes.data?.[0] || accountRes.data || {};
+    const finalAccountRef =
+      currency === 'KES'
+        ? user.partnaAccountRef // Preserve phoneID for Kenya
+        : (accountData as any).accountNumber ||
+          (accountData as any).id ||
+          'REF-POST-OTP';
+
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {
         paymentAccountReady: true,
         kycStatus: KycStatus.VERIFIED,
-        partnaAccountRef:
-          (accountData as any).accountNumber ||
-          (accountData as any).id ||
-          'REF-POST-OTP',
+        partnaAccountRef: finalAccountRef,
       },
     });
 

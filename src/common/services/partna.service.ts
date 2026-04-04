@@ -454,6 +454,67 @@ export class PartnaService {
   }
 
   /**
+   * POST /v4/phone
+   * Start phone verification for Kenya
+   */
+  async initiatePhoneVerification(params: {
+    country: string;
+    accountName: string;
+    phoneNumber: string;
+    mobileNetwork: string;
+  }) {
+    const sanitizedName = this.sanitizeAccountName(params.accountName);
+    const res = await this.request('/phone', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...params,
+        accountName: sanitizedName,
+      }),
+    });
+    this.logger.log(
+      `[PARTNA PHONE VERIFY START RESPONSE] ${JSON.stringify(res)}`,
+    );
+    return res;
+  }
+
+  /**
+   * PUT /v4/phone/verify
+   * Select verification method (e.g., sendotp)
+   */
+  async selectPhoneVerificationMethod(
+    phoneID: string,
+    method: string = 'sendotp',
+  ) {
+    const res = await this.request('/phone/verify', {
+      method: 'PUT',
+      body: JSON.stringify({
+        phoneID,
+        verificationMethod: method,
+      }),
+    });
+    this.logger.log(
+      `[PARTNA PHONE SELECT METHOD RESPONSE] ${JSON.stringify(res)}`,
+    );
+    return res;
+  }
+
+  /**
+   * PUT /v4/phone/confirm
+   * Confirm OTP for phone verification
+   */
+  async confirmPhoneOtp(phoneID: string, otp: string) {
+    const res = await this.request('/phone/confirm', {
+      method: 'PUT',
+      body: JSON.stringify({
+        phoneID,
+        otp,
+      }),
+    });
+    this.logger.log(`[PARTNA PHONE CONFIRM OTP RESPONSE] ${JSON.stringify(res)}`);
+    return res;
+  }
+
+  /**
    * Get supported banks (v4)
    */
   async getBanks(currency: string = 'NGN'): Promise<any[]> {

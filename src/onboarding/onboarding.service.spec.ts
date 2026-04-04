@@ -47,6 +47,9 @@ describe('OnboardingService - submitIdentity', () => {
               data: [{ accountNumber: 'REF-123' }],
             }),
             confirmPhone: jest.fn().mockResolvedValue({ success: true }),
+            initiatePhoneVerification: jest.fn(),
+            selectPhoneVerificationMethod: jest.fn(),
+            confirmPhoneOtp: jest.fn(),
           },
         },
       ],
@@ -157,6 +160,14 @@ describe('OnboardingService - submitIdentity', () => {
       email: 'test@kenya.com',
     });
 
+    const partnaService = (service as any).partnaService;
+    (partnaService.initiatePhoneVerification as jest.Mock).mockResolvedValue({
+      data: { phoneID: 'phone-123' },
+    });
+    (partnaService.selectPhoneVerificationMethod as jest.Mock).mockResolvedValue({
+      success: true,
+    });
+
     const result = await service.submitIdentity(userId, dto);
 
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -164,21 +175,22 @@ describe('OnboardingService - submitIdentity', () => {
       data: { country: 'KE', phoneNumber: '+254712345678' },
     });
 
-    const partnaService = (service as any).partnaService;
-    expect(partnaService.initiateKyc).toHaveBeenCalledWith({
+    expect(partnaService.initiatePhoneVerification).toHaveBeenCalledWith({
+      country: 'KE',
       accountName,
-      kesMobileNetwork: 'MPESA',
-      kesShortcode: '0712345678',
+      phoneNumber: '0712345678',
+      mobileNetwork: 'Safaricom',
     });
+    expect(partnaService.selectPhoneVerificationMethod).toHaveBeenCalledWith(
+      'phone-123',
+    );
 
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: userId },
       data: {
         phoneNumber: '+254712345678',
-        paymentAccountReady: true,
         partnaCustomerId: accountName,
-        partnaAccountRef: 'REF-123',
-        kycStatus: KycStatus.VERIFIED,
+        partnaAccountRef: 'phone-123',
       },
     });
   });

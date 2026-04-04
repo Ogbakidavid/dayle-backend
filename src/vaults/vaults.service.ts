@@ -518,11 +518,11 @@ export class VaultsService {
       );
     }
 
-    let rampReference = crypto.randomBytes(16).toString('hex');
+    let rampReference = vault.partnaRampReference || crypto.randomBytes(16).toString('hex');
     while (rampReference.startsWith('0')) {
       rampReference = crypto.randomBytes(16).toString('hex');
     }
-    const network = currency === 'KES' ? 'mpesa' : 'naira';
+    const network = currency === 'KES' ? 'kenyanshilling' : 'naira';
 
     // Partna requires the registered partnaCustomerId for the accountName field
     // Fallback to name-based sanitization if ID is missing (though it should be present for paymentAccountReady users)
@@ -546,9 +546,7 @@ export class VaultsService {
       rampReference: rampReference,
       accountName: partnaAccountName,
       phoneID:
-        currency === 'KES'
-          ? (vault.client.phoneNumber || '').replace('+254', '0')
-          : undefined,
+        currency === 'KES' ? vault.client.partnaAccountRef : undefined,
       cancelPendingRampRequest: true, // Allow re-generating bank details if one is already pending
     });
 
