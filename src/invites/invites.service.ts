@@ -181,7 +181,9 @@ export class InvitesService {
     });
 
     if (!invite) throw new NotFoundException('Invite not found');
-    if (invite.email !== email) throw new ForbiddenException('Email mismatch');
+    if (invite.email.toLowerCase() !== email.toLowerCase()) {
+      throw new ForbiddenException('Email mismatch');
+    }
     if (invite.status !== InviteStatus.PENDING)
       throw new BadRequestException('Already responded');
 
@@ -200,13 +202,17 @@ export class InvitesService {
         });
 
         let vault: any = null;
+        let roleUpdated = false;
         if (dto.action === 'accept') {
           // 0. Upgrade user role to FREELANCER if it's currently NONE
-          // We do this in a single hit to save time
-          await tx.user.updateMany({
+          const updateResult = await tx.user.updateMany({
             where: { id: userId, role: UserRole.NONE },
             data: { role: UserRole.FREELANCER },
           });
+          
+          if (updateResult.count > 0) {
+            roleUpdated = true;
+          }
 
           // 1. Link the freelancer to the vault in DB
           vault = await tx.vault.update({
@@ -240,6 +246,7 @@ export class InvitesService {
           invite: updatedInvite,
           vault: vault,
           vaultId: vault?.id,
+          roleUpdated,
         };
       },
       {
