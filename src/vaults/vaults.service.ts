@@ -1176,6 +1176,14 @@ export class VaultsService {
       );
     }
 
+    // Publish real-time event for frontend refresh
+    await this.redis.publish('vault.status_updated', {
+      vaultId,
+      clientId: vault.clientId,
+      freelancerId: vault.freelancerId,
+      status: vault.status, // Still FUNDED but has new submission
+    });
+
     if (dto.idempotencyKey) {
       await this.redis.set(
         `idempotency:${dto.idempotencyKey}`,
@@ -1363,6 +1371,15 @@ export class VaultsService {
     }
 
     await this.invalidateVaultCache(id, userId, updatedVault.freelancerId);
+
+    // Publish real-time event
+    await this.redis.publish('vault.status_updated', {
+      vaultId: id,
+      clientId: userId,
+      freelancerId: updatedVault.freelancerId,
+      status: dto.status,
+    });
+
     return this.formatVault(updatedVault);
   }
 
@@ -1406,6 +1423,14 @@ export class VaultsService {
         freelancer?.name || 'The freelancer',
       );
     }
+
+    // Publish real-time event
+    await this.redis.publish('vault.status_updated', {
+      vaultId,
+      clientId: vault.clientId,
+      freelancerId: userId,
+      status: 'RELEASE_REQUESTED', // Intentional string for frontend
+    });
 
     return { message: 'Release request sent to the client' };
   }

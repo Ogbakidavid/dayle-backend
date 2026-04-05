@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailsService } from '../notifications/mails.service';
+import { RedisService } from '../common/redis/redis.service';
 
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import {
@@ -34,6 +35,7 @@ export class DisputesService {
     private blockchainService: BlockchainService,
     private notificationsService: NotificationsService,
     private mailsService: MailsService,
+    private redis: RedisService,
   ) {}
 
   private calculateNewExpiry(dispute: any): Date {
@@ -220,6 +222,14 @@ export class DisputesService {
         );
       }
     }
+
+    // Publish real-time event
+    await this.redis.publish('vault.status_updated', {
+      vaultId: vault.id,
+      clientId: vault.clientId,
+      freelancerId: vault.freelancerId,
+      status: VaultStatus.DISPUTED,
+    });
 
     return dispute;
   }
@@ -547,6 +557,14 @@ export class DisputesService {
       });
 
       return updatedDispute;
+    });
+
+    // Publish real-time event
+    await this.redis.publish('vault.status_updated', {
+      vaultId: dispute.vaultId,
+      clientId: dispute.vault.clientId,
+      freelancerId: dispute.vault.freelancerId,
+      status: (resolution as any).status === VaultStatus.RELEASED ? VaultStatus.RELEASED : VaultStatus.REFUNDED,
     });
 
     return resolution;

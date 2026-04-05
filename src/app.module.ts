@@ -106,12 +106,12 @@ import { RatesModule } from './rates/rates.module';
                     delay: 5000,
                   },
                 },
-                // Optimized worker defaults for Upstash (30s polling)
+                // Optimized worker defaults for Upstash (60s polling for max savings)
                 workerOptions: {
                   concurrency: 1,
                   stalledInterval: 300000,
                   lockDuration: 300000,
-                  drainDelay: 30000,
+                  drainDelay: 60000,
                 },
               };
             },

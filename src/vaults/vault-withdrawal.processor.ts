@@ -16,7 +16,7 @@ import * as crypto from 'crypto';
   concurrency: 1,
   stalledInterval: 300000,
   lockDuration: 300000,
-  drainDelay: 30000,
+  drainDelay: 60000,
 })
 export class VaultWithdrawalProcessor extends WorkerHost {
   private readonly logger = new Logger(VaultWithdrawalProcessor.name);

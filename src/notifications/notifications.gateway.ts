@@ -51,6 +51,7 @@ export class NotificationsGateway
         'vault.funded',
         'vault.released',
         'vault.refunded',
+        'vault.status_updated',
         (err, count) => {
           if (err) {
             this.logger.error(
@@ -117,6 +118,17 @@ export class NotificationsGateway
             message: `The vault "${payload.title}" has been cancelled and refunded.`,
             action: `/freelancer/vault/${payload.vaultId}`,
           });
+      } else if (channel === 'vault.status_updated') {
+        const eventData = {
+          vaultId: payload.vaultId,
+          status: payload.status,
+          timestamp: new Date().toISOString()
+        };
+        
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'vault_updated', eventData);
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'vault_updated', eventData);
       }
     });
   }

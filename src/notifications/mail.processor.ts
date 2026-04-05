@@ -7,7 +7,7 @@ import { Injectable, Logger } from '@nestjs/common';
   concurrency: 1,
   stalledInterval: 300000,
   lockDuration: 300000,
-  drainDelay: 30000,
+  drainDelay: 60000,
 })
 export class MailProcessor extends WorkerHost {
   private readonly logger = new Logger(MailProcessor.name);

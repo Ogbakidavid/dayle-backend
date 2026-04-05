@@ -9,7 +9,7 @@ import { VaultStatus } from '../domain/enums';
   concurrency: 1,
   stalledInterval: 300000,
   lockDuration: 300000,
-  drainDelay: 30000,
+  drainDelay: 60000,
 })
 export class WithdrawalRetryProcessor extends WorkerHost {
   private readonly logger = new Logger(WithdrawalRetryProcessor.name);
