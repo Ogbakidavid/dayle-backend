@@ -41,7 +41,7 @@ export class MailProcessor extends WorkerHost {
     }
 
     if (job.name === 'sendVaultStatus') {
-      const { to, userName, vaultTitle, eventType, actionLink, otherPartyName } = job.data;
+      const { to, userName, vaultTitle, eventType, actionLink, otherPartyName, notes } = job.data;
       return this.mailsService.handleSendVaultStatusEmail(
         to,
         userName,
@@ -49,6 +49,7 @@ export class MailProcessor extends WorkerHost {
         eventType,
         actionLink,
         otherPartyName,
+        notes,
       );
     }
   }

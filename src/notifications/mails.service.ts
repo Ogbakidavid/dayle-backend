@@ -108,6 +108,7 @@ export class MailsService {
     eventType: 'work_submitted' | 'release_requested' | 'changes_requested' | 'dispute_raised' | 'vault_released',
     actionLink: string,
     otherPartyName?: string,
+    notes?: string,
   ) {
     if (!this.mailQueue) {
       this.logger.warn(
@@ -126,6 +127,7 @@ export class MailsService {
         eventType,
         actionLink,
         otherPartyName,
+        notes,
       },
       {
         attempts: 3,
@@ -290,6 +292,7 @@ export class MailsService {
     eventType: 'work_submitted' | 'release_requested' | 'changes_requested' | 'dispute_raised' | 'vault_released',
     actionLink: string,
     otherPartyName?: string,
+    notes?: string,
   ) {
     const eventConfig = {
       work_submitted: {
@@ -307,7 +310,7 @@ export class MailsService {
       changes_requested: {
         subject: `Dayle: Changes requested for "${vaultTitle}"`,
         title: 'Changes Requested',
-        body: `<strong>${otherPartyName || 'The client'}</strong> has requested some changes to your submission. Please check the vault for comments.`,
+        body: `<strong>${otherPartyName || 'The client'}</strong> has requested changes to your submission${notes ? `: <br/><br/><i>"${notes}"</i>` : '. Please check the vault for comments.'}`,
         color: '#f59e0b',
       },
       dispute_raised: {

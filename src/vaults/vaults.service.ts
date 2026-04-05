@@ -1351,7 +1351,14 @@ export class VaultsService {
           'changes_requested',
           `/freelancer/vault/${id}`,
           client?.name || 'The client',
+          dto.reason,
         );
+        await this.notificationsService.createNotification(updatedVault.freelancerId, {
+          type: 'vault',
+          title: 'Changes Requested',
+          message: `The client has requested changes for "${updatedVault.title}"${dto.reason ? `: "${dto.reason}"` : "."}`,
+          action: `/freelancer/vault/${id}`,
+        });
       }
     }
 
