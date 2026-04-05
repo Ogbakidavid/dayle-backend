@@ -12,7 +12,12 @@ import { RedisService } from '../common/redis/redis.service';
 import { ethers } from 'ethers';
 import * as crypto from 'crypto';
 
-@Processor('vault-withdrawal')
+@Processor('vault-withdrawal', {
+  concurrency: 1,
+  stalledInterval: 300000,
+  lockDuration: 300000,
+  drainDelay: 30000,
+})
 export class VaultWithdrawalProcessor extends WorkerHost {
   private readonly logger = new Logger(VaultWithdrawalProcessor.name);
 

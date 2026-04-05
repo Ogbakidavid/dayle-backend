@@ -9,7 +9,12 @@ import { ethers } from 'ethers';
 import { calculateDayleFee } from '../common/utils/fee.utils';
 import { RedisService } from '../common/redis/redis.service';
 
-@Processor('vault-release')
+@Processor('vault-release', {
+  concurrency: 1,
+  stalledInterval: 300000,
+  lockDuration: 300000,
+  drainDelay: 30000,
+})
 export class VaultReleaseProcessor extends WorkerHost {
   private readonly logger = new Logger(VaultReleaseProcessor.name);
 

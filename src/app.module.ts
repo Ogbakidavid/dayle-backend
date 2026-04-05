@@ -105,16 +105,13 @@ import { RatesModule } from './rates/rates.module';
                     type: 'exponential',
                     delay: 5000,
                   },
-                  ...(process.env.TESTNET_MODE === 'true'
-                    ? { skipStalledCheck: true, delay: 0 }
-                    : {}),
                 },
-                // Optimized worker defaults
+                // Optimized worker defaults for Upstash (30s polling)
                 workerOptions: {
                   concurrency: 1,
                   stalledInterval: 300000,
                   lockDuration: 300000,
-                  drainDelay: 300000,
+                  drainDelay: 30000,
                 },
               };
             },

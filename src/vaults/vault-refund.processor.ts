@@ -7,7 +7,12 @@ import { BlockchainService } from '../common/services/blockchain.service';
 import { VaultStatus, LedgerEntryType, TransactionStatus } from '../domain/enums';
 import { RedisService } from '../common/redis/redis.service';
 
-@Processor('vault-refund')
+@Processor('vault-refund', {
+  concurrency: 1,
+  stalledInterval: 300000,
+  lockDuration: 300000,
+  drainDelay: 30000,
+})
 export class VaultRefundProcessor extends WorkerHost {
   private readonly logger = new Logger(VaultRefundProcessor.name);
 

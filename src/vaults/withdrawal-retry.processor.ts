@@ -5,7 +5,12 @@ import { VaultsService } from './vaults.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { VaultStatus } from '../domain/enums';
 
-@Processor('withdrawal-retry')
+@Processor('withdrawal-retry', {
+  concurrency: 1,
+  stalledInterval: 300000,
+  lockDuration: 300000,
+  drainDelay: 30000,
+})
 export class WithdrawalRetryProcessor extends WorkerHost {
   private readonly logger = new Logger(WithdrawalRetryProcessor.name);
 
