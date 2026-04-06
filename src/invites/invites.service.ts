@@ -82,25 +82,19 @@ export class InvitesService {
       throw new NotFoundException('Invite not found');
     }
 
-    if (
-      invite.status !== InviteStatus.PENDING ||
-      invite.expiresAt < new Date()
-    ) {
-      throw new BadRequestException('Invite expired or already responded');
-    }
-
+    const { vault, ...inviteData } = invite;
     return {
-      invite,
+      invite: inviteData,
       vault: {
-        ...invite.vault,
-        clientName: invite.vault.client.name,
+        ...vault,
+        clientName: vault.client.name,
         formattedTotalAmount: ethers.formatUnits(
-          invite.vault.totalAmount || invite.vault.amount,
+          vault.totalAmount || vault.amount || 0,
           6,
         ),
         isFunded:
-          invite.vault.status !== VaultStatus.DRAFT &&
-          invite.vault.status !== VaultStatus.CANCELLED,
+          vault.status !== VaultStatus.DRAFT &&
+          vault.status !== VaultStatus.CANCELLED,
       },
     };
   }
