@@ -293,7 +293,6 @@ export class PartnaService {
       body: JSON.stringify({
         accountName: sanitizedName,
         email,
-        full_name: fullName,
         type,
       }),
     }).catch(async (err) => {

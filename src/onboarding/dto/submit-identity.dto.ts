@@ -11,6 +11,10 @@ export class SubmitIdentityDto {
   @IsNotEmpty()
   country: string;
 
+  @IsString()
+  @IsNotEmpty()
+  fullName: string;
+
   @ValidateIf((o) => o.country === 'NG' || o.country === 'NGA')
   @IsString()
   @IsNotEmpty()

@@ -147,7 +147,10 @@ export class OnboardingService {
       });
     }
 
-    const updateData: any = { country: normalizedCountry };
+    const updateData: any = { 
+      country: normalizedCountry,
+      name: dto.fullName 
+    };
 
     if (normalizedCountry === 'NG') {
       if (!dto.bvn) {
@@ -160,7 +163,7 @@ export class OnboardingService {
       updateData.phoneNumber = dto.phoneNumber;
     }
 
-    // Initial update for country/phone
+    // Initial update for country/phone/name
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: updateData,
