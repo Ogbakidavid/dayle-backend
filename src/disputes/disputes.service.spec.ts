@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailsService } from '../notifications/mails.service';
+import { RedisService } from '../common/redis/redis.service';
 import { BadRequestException } from '@nestjs/common';
 import { VaultStatus, UserRole, KycStatus } from '../domain/enums';
 
@@ -40,6 +41,12 @@ describe('DisputesService', () => {
           provide: MailsService,
           useValue: {
             sendVaultStatusEmail: jest.fn(),
+          },
+        },
+        {
+          provide: RedisService,
+          useValue: {
+            publish: jest.fn(),
           },
         },
       ],

@@ -6,6 +6,7 @@ import { BlockchainService } from '../common/services/blockchain.service';
 import { DisputeAiService } from './dispute-ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailsService } from '../notifications/mails.service';
+import { RedisService } from '../common/redis/redis.service';
 
 describe('DisputesController', () => {
   let controller: DisputesController;
@@ -39,6 +40,12 @@ describe('DisputesController', () => {
           provide: MailsService,
           useValue: {
             sendVaultStatusEmail: jest.fn(),
+          },
+        },
+        {
+          provide: RedisService,
+          useValue: {
+            publish: jest.fn(),
           },
         },
       ],

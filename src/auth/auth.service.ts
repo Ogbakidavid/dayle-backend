@@ -21,7 +21,12 @@ export class AuthService {
     private redis: RedisService,
   ) {}
 
-  async privyLogin(accessToken: string, role?: string) {
+  async privyLogin(
+    accessToken: string,
+    role?: string,
+    initialName?: string,
+    initialCountry?: string,
+  ): Promise<{ user: any; accessToken: string; refreshToken: string }> {
     let verifiedClaims: any;
     try {
       verifiedClaims = await this.privyService.verifyToken(accessToken);
@@ -108,15 +113,30 @@ export class AuthService {
       throw new BadRequestException('Email is required from social login');
     }
 
-    // Fallback for name
-    if (!name) {
+    // Fallback for name: Prioritize the name passed from the frontend (e.g. Signup form)
+    // Then fall back to social media name (if any), then email prefix
+    if (initialName) {
+      name = initialName;
+    } else if (!name) {
       name = email.split('@')[0];
+    }
+
+    // Prepare country
+    let country: string | null = null;
+    if (initialCountry) {
+      const c = initialCountry.toUpperCase();
+      country =
+        c === 'NIGERIA' || c === 'NGA' || c === 'NG'
+          ? 'NG'
+          : c === 'KENYA' || c === 'KEN' || c === 'KE'
+            ? 'KE'
+            : c;
     }
 
     console.log('[privyLogin] Step 3: Email resolved:', email);
 
     // Check for existing user by email or wallet DID
-    let user = await this.prisma.user.findUnique({
+    let user: any = await this.prisma.user.findUnique({
       where: { email },
       include: { wallet: true },
     });
@@ -145,6 +165,7 @@ export class AuthService {
         data: {
           email,
           name,
+          country,
           role: userRole,
           emailVerified: true,
         },
@@ -188,77 +209,82 @@ export class AuthService {
         });
       }
 
-      user = await this.prisma.user.findUnique({
+      const refreshedUser = await this.prisma.user.findUnique({
         where: { id: newUser.id },
         include: { wallet: true },
       });
-    } else if (!user.wallet) {
-      console.log(
-        '[privyLogin] Step 4b: User exists but no wallet, linking...',
-      );
-      // Link existing user to Privy if not linked
-      const existingWallet = await this.prisma.wallet.findFirst({
-        where: { privyDid: privyDid },
-      });
-
-      if (!existingWallet) {
-        const embeddedWallet = linkedAccounts.find(
-          (account: any) =>
-            account.type === 'wallet' && account.wallet_client_type === 'privy',
-        );
-
-        let walletAddress = embeddedWallet ? embeddedWallet.address : null;
-
-        // If still no address but user is social/email, it's likely pending creation
-        // Ensure 'pending' wallets are only created if no address is available
-        if (!walletAddress) {
-          walletAddress = `pending_${privyDid}`;
-        }
-
-        await this.prisma.wallet.create({
-          data: {
-            userId: user.id,
-            address: walletAddress,
-            privyDid: privyDid,
-            provider: 'PRIVY',
-          },
-        });
-      } else {
-        console.warn(
-          `Wallet with DID ${privyDid} exists but user ${user.id} has no wallet linked. Linking now if possible.`,
-        );
+      if (!refreshedUser) {
+        throw new UnauthorizedException('Failed to fetch newly created user');
+      }
+      user = refreshedUser;
+    } else {
+      // Logic for existing user: Update name/country if missing
+      const updates: any = {};
+      const isDefaultName = user.name === user.email.split('@')[0];
+      if (name && (!user.name || isDefaultName)) {
+        updates.name = name;
+      }
+      if (country && !user.country) {
+        updates.country = country;
       }
 
-      // Refresh user object
-      user = await this.prisma.user.findUnique({
-        where: { id: user.id },
-        include: { wallet: true },
-      });
-    } else if (user.wallet && user.wallet.address.startsWith('pending_')) {
-      // If user has a pending wallet, check if Privy now has a real address
-      console.log(
-        `[privyLogin] User ${user.id} has pending wallet ${user.wallet.address}. Checking for real address...`,
-      );
-      const embeddedWallet = linkedAccounts.find(
-        (account: any) =>
-          account.type === 'wallet' && account.wallet_client_type === 'privy',
-      );
-
-      if (embeddedWallet && embeddedWallet.address) {
-        const realAddress = embeddedWallet.address;
-        console.log(
-          `[privyLogin] Found real address: ${realAddress}. Updating...`,
-        );
-        await this.prisma.wallet.update({
-          where: { id: user.wallet.id },
-          data: { address: realAddress },
+      if (Object.keys(updates).length > 0) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: updates,
         });
-
-        // Refresh user object
+        // Refresh
         user = await this.prisma.user.findUnique({
           where: { id: user.id },
           include: { wallet: true },
         });
+      }
+
+      // Check wallet synchronization
+      if (!user.wallet) {
+        console.log('[privyLogin] Step 4b: Existing user, no wallet, linking...');
+        const existingWallet = await this.prisma.wallet.findFirst({
+          where: { privyDid },
+        });
+
+        if (!existingWallet) {
+          const embeddedWallet = linkedAccounts.find(
+            (acc: any) => acc.type === 'wallet' && acc.wallet_client_type === 'privy',
+          );
+          const walletAddress = embeddedWallet?.address || `pending_${privyDid}`;
+
+          await this.prisma.wallet.create({
+            data: {
+              userId: user.id,
+              address: walletAddress,
+              privyDid: privyDid,
+              provider: 'PRIVY',
+            },
+          });
+        }
+        
+        // Final refresh
+        user = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          include: { wallet: true },
+        });
+      } else if (user.wallet.address.startsWith('pending_')) {
+        console.log(`[privyLogin] User ${user.id} has pending wallet. Checking for real address...`);
+        const embeddedWallet = linkedAccounts.find(
+          (acc: any) => acc.type === 'wallet' && acc.wallet_client_type === 'privy',
+        );
+
+        if (embeddedWallet?.address) {
+          await this.prisma.wallet.update({
+            where: { id: user.wallet.id },
+            data: { address: embeddedWallet.address },
+          });
+          // Refresh
+          user = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            include: { wallet: true },
+          });
+        }
       }
     }
 
@@ -318,7 +344,7 @@ export class AuthService {
 
   private async blacklistToken(token: string) {
     try {
-      const decoded = this.jwtService.decode(token);
+      const decoded = this.jwtService.decode(token) as any;
       if (decoded && decoded.exp) {
         const ttl = Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
         if (ttl > 0) {

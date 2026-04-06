@@ -68,13 +68,13 @@ export class AuthController {
   @Throttle({ auth: { ttl: 60000, limit: 5 } })
   @Post('privy-login')
   async privyLogin(
-    @Body() dto: { accessToken: string; role?: string },
+    @Body() dto: { accessToken: string; role?: string; name?: string; country?: string },
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { accessToken, refreshToken, user } =
-      await this.authService.privyLogin(dto.accessToken, dto.role);
+    const { accessToken, refreshToken, user: backendUser } =
+      await this.authService.privyLogin(dto.accessToken, dto.role, dto.name, dto.country);
     this.setTokensInCookies(response, accessToken, refreshToken);
-    return { user, accessToken };
+    return { user: backendUser, accessToken };
   }
 
   // Session Management
