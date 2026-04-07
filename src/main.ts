@@ -58,6 +58,7 @@ async function bootstrap() {
       'Accept',
       'Authorization',
       'x-idempotency-key',
+      'ngrok-skip-browser-warning',
     ],
   });
 
