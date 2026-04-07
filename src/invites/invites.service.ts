@@ -347,6 +347,7 @@ export class InvitesService {
         `vaults:detail:${invite.vaultId}`,
         `vaults:list:CLIENT:${invite.vault.clientId}`,
         `vaults:list:FREELANCER:${userId}`,
+        `vaults:list:NONE:${userId}`,
       ];
       await Promise.all(keys.map((key) => this.redis.del(key)));
       this.logger.log(
