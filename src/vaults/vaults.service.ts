@@ -1152,6 +1152,15 @@ export class VaultsService {
         },
       });
 
+      // Automatically transition from CHANGES_REQUESTED to RELEASE_REQUESTED
+      // so the client knows their feedback was addressed and can approve.
+      if (vault.status === VaultStatus.CHANGES_REQUESTED) {
+        await tx.vault.update({
+          where: { id: vaultId },
+          data: { status: VaultStatus.RELEASE_REQUESTED },
+        });
+      }
+
       return { vault, submission };
     });
 
