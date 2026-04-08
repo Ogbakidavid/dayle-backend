@@ -120,18 +120,28 @@ export class WebhooksService {
 
             // Create LOCK entry for freelancer if assigned
             if (vault.freelancerId) {
-              await tx.ledgerEntry.create({
-                data: {
+              const existingLock = await tx.ledgerEntry.findFirst({
+                where: {
                   userId: vault.freelancerId,
                   vaultId: vault.id,
                   type: LedgerEntryType.LOCK,
-                  amount: vault.totalAmount,
-                  currency: vault.tokenSymbol || "USD",
-                  status: TransactionStatus.CONFIRMED,
-                  description: `Secured funds for project: ${vault.title}`,
-                  completedAt: new Date(),
                 },
               });
+
+              if (!existingLock) {
+                await tx.ledgerEntry.create({
+                  data: {
+                    userId: vault.freelancerId,
+                    vaultId: vault.id,
+                    type: LedgerEntryType.LOCK,
+                    amount: vault.totalAmount,
+                    currency: vault.tokenSymbol || "USD",
+                    status: TransactionStatus.CONFIRMED,
+                    description: `Secured funds for project: ${vault.title}`,
+                    completedAt: new Date(),
+                  },
+                });
+              }
             }
           });
 
@@ -543,18 +553,28 @@ export class WebhooksService {
 
             // Create LOCK entry for freelancer if assigned
             if (vault.freelancerId) {
-              await tx.ledgerEntry.create({
-                data: {
+              const existingLock = await tx.ledgerEntry.findFirst({
+                where: {
                   userId: vault.freelancerId,
                   vaultId: vault.id,
                   type: LedgerEntryType.LOCK,
-                  amount: vault.totalAmount,
-                  currency: vault.tokenSymbol || "USD",
-                  status: TransactionStatus.CONFIRMED,
-                  description: `Secured funds for project: ${vault.title}`,
-                  completedAt: new Date(),
                 },
               });
+
+              if (!existingLock) {
+                await tx.ledgerEntry.create({
+                  data: {
+                    userId: vault.freelancerId,
+                    vaultId: vault.id,
+                    type: LedgerEntryType.LOCK,
+                    amount: vault.totalAmount,
+                    currency: vault.tokenSymbol || "USD",
+                    status: TransactionStatus.CONFIRMED,
+                    description: `Secured funds for project: ${vault.title}`,
+                    completedAt: new Date(),
+                  },
+                });
+              }
             }
 
             // Create negative FEE entry

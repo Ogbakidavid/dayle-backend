@@ -1402,6 +1402,12 @@ export class VaultsService {
       });
     }
 
+    // Update vault status in DB
+    await this.prisma.vault.update({
+      where: { id: vaultId },
+      data: { status: VaultStatus.RELEASE_REQUESTED as any },
+    });
+
     // Notify client about the release request
     await this.notificationsService.createNotification(vault.clientId, {
       type: 'vault',

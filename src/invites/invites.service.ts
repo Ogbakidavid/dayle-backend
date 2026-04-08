@@ -220,18 +220,28 @@ export class InvitesService {
 
           // If the vault is already funded, create a LOCK entry for the freelancer
           if (vault.status === VaultStatus.FUNDED) {
-            await tx.ledgerEntry.create({
-              data: {
+            const existingLock = await tx.ledgerEntry.findFirst({
+              where: {
                 userId: userId,
                 vaultId: vault.id,
                 type: LedgerEntryType.LOCK,
-                amount: vault.totalAmount,
-                currency: vault.tokenSymbol || "USD",
-                status: TransactionStatus.CONFIRMED,
-                description: `Secured funds for project: ${vault.title}`,
-                completedAt: new Date(),
               },
             });
+
+            if (!existingLock) {
+              await tx.ledgerEntry.create({
+                data: {
+                  userId: userId,
+                  vaultId: vault.id,
+                  type: LedgerEntryType.LOCK,
+                  amount: vault.totalAmount,
+                  currency: vault.tokenSymbol || "USD",
+                  status: TransactionStatus.CONFIRMED,
+                  description: `Secured funds for project: ${vault.title}`,
+                  completedAt: new Date(),
+                },
+              });
+            }
           }
         }
 

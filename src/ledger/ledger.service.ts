@@ -2,10 +2,11 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-import { LedgerEntryType, TransactionStatus, KycStatus } from '../domain/enums';
+import { LedgerEntryType, TransactionStatus, KycStatus, VaultStatus } from '../domain/enums';
 import { WithdrawDto } from './dto/withdraw.dto';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -26,7 +27,7 @@ export class LedgerService {
     const entries = await prisma.ledgerEntry.findMany({
       where: {
         userId,
-        status: TransactionStatus.CONFIRMED,
+        status: { in: [TransactionStatus.CONFIRMED, TransactionStatus.PENDING] },
       },
     });
 
@@ -43,6 +44,11 @@ export class LedgerService {
       if (!isClient && entry.type === LedgerEntryType.LOCK) {
         return sum;
       }
+      // For clients, DEPOSIT/FEE only count towards available if CONFIRMED
+      if (isClient && entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) {
+        return sum;
+      }
+      // Deduct PENDING withdrawals and fees immediately from available
       return sum + entry.amount;
     }, BigInt(0));
 
@@ -51,6 +57,7 @@ export class LedgerService {
         userId,
         status: { in: [TransactionStatus.PENDING, TransactionStatus.CONFIRMED] },
       },
+      include: { vault: true },
     });
 
     const pending = pendingEntries.reduce((sum, entry) => {
@@ -58,13 +65,13 @@ export class LedgerService {
       // For Freelancers, LOCK entries are "Pending Settlement" until released.
       if (
         (isClient && entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) ||
-        (!isClient && entry.type === LedgerEntryType.LOCK)
+        (!isClient && entry.type === LedgerEntryType.LOCK && entry.vault?.status === (VaultStatus.RELEASE_REQUESTED as any))
       ) {
         return sum + (entry.amount < 0 ? -entry.amount : entry.amount);
       }
       // Traditional withdrawal pending logic
       if (entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.WITHDRAW || entry.type === LedgerEntryType.FEE)) {
-         return sum + (entry.amount < 0 ? -entry.amount : entry.amount);
+        return sum + (entry.amount < 0 ? -entry.amount : entry.amount);
       }
       return sum;
     }, BigInt(0));
@@ -101,7 +108,10 @@ export class LedgerService {
     ]);
 
     return {
-      transactions,
+      transactions: transactions.map(tx => ({
+        ...tx,
+        amount: tx.amount.toString()
+      })),
       total,
       limit: +limit,
       offset: +offset,
@@ -210,7 +220,7 @@ export class LedgerService {
         id: entry.id,
         createdAt: entry.createdAt,
         type: 'WITHDRAW',
-        amount: entry.amount,
+        amount: entry.amount.toString(),
         netAmount: netAmount.toString(),
         totalFees: totalFees.toString(),
         currency: dto.currency || 'USD',
