@@ -1124,10 +1124,13 @@ export class VaultsService {
       });
     }
 
-    if (vault.status !== VaultStatus.FUNDED) {
+    if (
+      vault.status !== VaultStatus.FUNDED &&
+      vault.status !== VaultStatus.CHANGES_REQUESTED
+    ) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
-        message: 'Vault must be FUNDED',
+        message: 'Vault must be IN PROGRESS (FUNDED) or CHANGES REQUESTED to submit work',
       });
     }
 
@@ -1395,10 +1398,13 @@ export class VaultsService {
       });
     }
 
-    if (vault.status !== VaultStatus.FUNDED) {
+    if (
+      vault.status !== VaultStatus.FUNDED &&
+      vault.status !== VaultStatus.CHANGES_REQUESTED
+    ) {
       throw new BadRequestException({
         code: 'INVALID_STATE',
-        message: 'Vault must be IN PROGRESS (FUNDED) to request release',
+        message: 'Vault must be IN PROGRESS (FUNDED) or CHANGES REQUESTED to request release',
       });
     }
 
