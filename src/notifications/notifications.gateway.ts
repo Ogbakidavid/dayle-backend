@@ -108,6 +108,7 @@ export class NotificationsGateway
             message: `Funds for vault "${payload.title}" have been released to the freelancer.`,
             action: `/client/vault/${payload.vaultId}`,
           });
+        if (payload.freelancerId)
           this.sendToUser(payload.freelancerId, 'notification', {
             type: 'success',
             title: 'Payment Received',
@@ -134,6 +135,7 @@ export class NotificationsGateway
             message: `Funds for vault "${payload.title}" have been refunded to your wallet.`,
             action: `/client/vault/${payload.vaultId}`,
           });
+        if (payload.freelancerId)
           this.sendToUser(payload.freelancerId, 'notification', {
             type: 'info',
             title: 'Vault Cancelled',
