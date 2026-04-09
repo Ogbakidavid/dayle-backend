@@ -12,6 +12,6 @@ export class GetPresignedUrlDto {
   @Max(104857600) // 100MB
   fileSize: number;
 
-  @IsEnum(['kyc', 'deliverable', 'evidence'])
-  purpose: 'kyc' | 'deliverable' | 'evidence';
+  @IsEnum(['kyc', 'deliverable', 'evidence', 'KYC', 'EVIDENCE', 'DELIVERABLE'])
+  purpose: string;
 }
