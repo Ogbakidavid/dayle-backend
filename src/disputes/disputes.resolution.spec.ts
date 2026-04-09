@@ -77,6 +77,7 @@ describe('DisputesService Adjudication', () => {
           provide: RedisService,
           useValue: {
             publish: jest.fn(),
+            del: jest.fn(),
           },
         },
       ],
