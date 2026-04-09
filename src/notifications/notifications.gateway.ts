@@ -88,6 +88,18 @@ export class NotificationsGateway
             message: `Vault ${payload.vaultId} is now funded and ready for work!`,
             action: `/freelancer/vault/${payload.vaultId}`,
           });
+          
+        const eventData = {
+          vaultId: payload.vaultId,
+          status: payload.status || 'FUNDED',
+          timestamp: new Date().toISOString()
+        };
+        
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'vault_updated', eventData);
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'vault_updated', eventData);
+            
       } else if (channel === 'vault.released') {
         if (payload.clientId)
           this.sendToUser(payload.clientId, 'notification', {
@@ -96,13 +108,24 @@ export class NotificationsGateway
             message: `Funds for vault "${payload.title}" have been released to the freelancer.`,
             action: `/client/vault/${payload.vaultId}`,
           });
-        if (payload.freelancerId)
           this.sendToUser(payload.freelancerId, 'notification', {
             type: 'success',
             title: 'Payment Received',
             message: `Funds for vault "${payload.title}" have been released to your balance!`,
             action: `/freelancer/vault/${payload.vaultId}`,
           });
+
+        const eventData = {
+          vaultId: payload.vaultId,
+          status: payload.status || 'RELEASED',
+          timestamp: new Date().toISOString()
+        };
+        
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'vault_updated', eventData);
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'vault_updated', eventData);
+          
       } else if (channel === 'vault.refunded') {
         if (payload.clientId)
           this.sendToUser(payload.clientId, 'notification', {
@@ -111,13 +134,24 @@ export class NotificationsGateway
             message: `Funds for vault "${payload.title}" have been refunded to your wallet.`,
             action: `/client/vault/${payload.vaultId}`,
           });
-        if (payload.freelancerId)
           this.sendToUser(payload.freelancerId, 'notification', {
             type: 'info',
             title: 'Vault Cancelled',
             message: `The vault "${payload.title}" has been cancelled and refunded.`,
             action: `/freelancer/vault/${payload.vaultId}`,
           });
+
+        const eventData = {
+          vaultId: payload.vaultId,
+          status: payload.status || 'REFUNDED',
+          timestamp: new Date().toISOString()
+        };
+        
+        if (payload.clientId)
+          this.sendToUser(payload.clientId, 'vault_updated', eventData);
+        if (payload.freelancerId)
+          this.sendToUser(payload.freelancerId, 'vault_updated', eventData);
+          
       } else if (channel === 'vault.status_updated') {
         const eventData = {
           vaultId: payload.vaultId,

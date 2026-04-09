@@ -24,6 +24,7 @@ import {
   LedgerEntryType,
   TransactionStatus,
   KycStatus,
+  EvidenceType,
 } from '../domain/enums';
 import { ethers } from 'ethers';
 import { calculateDayleFee } from '../common/utils/fee.utils';
@@ -37,6 +38,21 @@ export class DisputesService {
     private mailsService: MailsService,
     private redis: RedisService,
   ) {}
+
+  private async invalidateVaultCache(
+    vaultId: string,
+    clientId: string,
+    freelancerId?: string | null,
+  ) {
+    const keys = [
+      `vaults:detail:${vaultId}`,
+      `vaults:list:${UserRole.CLIENT}:${clientId}`,
+    ];
+    if (freelancerId) {
+      keys.push(`vaults:list:${UserRole.FREELANCER}:${freelancerId}`);
+    }
+    await Promise.all(keys.map((key) => this.redis.del(key)));
+  }
 
   private calculateNewExpiry(dispute: any): Date {
     const now = Date.now();
@@ -188,7 +204,7 @@ export class DisputesService {
             data: {
               vaultId: dto.vaultId,
               disputeId: newDispute.id,
-              type: 'MESSAGE' as any, // Default type for initial evidence
+              type: EvidenceType.DISPUTE_EVIDENCE,
               payload: {
                 fileName: item.filename,
                 key: item.key,
@@ -230,6 +246,12 @@ export class DisputesService {
       freelancerId: vault.freelancerId,
       status: VaultStatus.DISPUTED,
     });
+
+    await this.invalidateVaultCache(
+      vault.id,
+      vault.clientId,
+      vault.freelancerId,
+    );
 
     return dispute;
   }
@@ -381,6 +403,12 @@ export class DisputesService {
       dispute.status === DisputeStatus.REJECTED
     ) {
       throw new BadRequestException('Dispute is already closed');
+    }
+
+    if (dispute.status === DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException(
+        'This dispute is still in the Mutual Resolution phase. Admins can only resolve cases once they have been escalated to Phase 2 (Expert Review).',
+      );
     }
 
     const { outcome, splitAmount, notes } = dto;
@@ -566,6 +594,12 @@ export class DisputesService {
       freelancerId: dispute.vault.freelancerId,
       status: (resolution as any).status === VaultStatus.RELEASED ? VaultStatus.RELEASED : VaultStatus.REFUNDED,
     });
+
+    await this.invalidateVaultCache(
+      dispute.vaultId,
+      dispute.vault.clientId,
+      dispute.vault.freelancerId,
+    );
 
     return resolution;
   }

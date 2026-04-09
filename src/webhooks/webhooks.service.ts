@@ -218,6 +218,13 @@ export class WebhooksService {
             vault.freelancerId,
           );
 
+          await this.redisService.publish('vault.funded', {
+            vaultId: vault.id,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+            status: VaultStatus.FUNDED,
+          });
+
           await this.notificationsService.createNotification(vault.clientId, {
             type: 'payment',
             title: 'Vault Funded',
@@ -299,6 +306,19 @@ export class WebhooksService {
             title: 'Payment Released',
             message: `Payment has been released to the freelancer.`,
             action: `/client/vault/${vault.id}`,
+          });
+
+          await this.invalidateVaultCache(
+            vault.id,
+            vault.clientId,
+            vault.freelancerId,
+          );
+
+          await this.redisService.publish('vault.status_updated', {
+            vaultId: vault.id,
+            status: VaultStatus.RELEASED,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
           });
         }
       } else if (isFailed) {
@@ -484,6 +504,19 @@ export class WebhooksService {
             action: `/client/vault/${offrampVault.id}`,
           },
         );
+
+        await this.invalidateVaultCache(
+          offrampVault.id,
+          offrampVault.clientId,
+          offrampVault.freelancerId,
+        );
+
+        await this.redisService.publish('vault.status_updated', {
+          vaultId: offrampVault.id,
+          status: VaultStatus.RELEASED,
+          clientId: offrampVault.clientId,
+          freelancerId: offrampVault.freelancerId,
+        });
       }
       return;
     }
