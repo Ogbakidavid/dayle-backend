@@ -557,8 +557,13 @@ export class OnboardingService {
             mobileNetwork: 'Safaricom', // Default for Kenya
           });
         } catch (phoneError: any) {
-          this.logger.error(`[PARTNA KE PHONE VERIFY FAILED] ${phoneError.message}`);
-          throw phoneError;
+          if (phoneError.message?.toLowerCase().includes('already verified')) {
+            this.logger.log(`[PARTNA KE PHONE] Phone already verified for ${finalAccountName}. Skipping to account creation.`);
+            phoneRes = { data: null }; // Signals skip to Step 4
+          } else {
+            this.logger.error(`[PARTNA KE PHONE VERIFY FAILED] ${phoneError.message}`);
+            throw phoneError;
+          }
         }
 
         // 3. [SELECT VERIFICATION METHOD & STORE phoneID]
