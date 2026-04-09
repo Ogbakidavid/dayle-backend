@@ -55,10 +55,7 @@ export class OnboardingService {
     
     // Check if email already exists on Partna first
     try {
-      const existingAccounts = await this.partnaService.getAccountDetails();
-      const existing = existingAccounts.find(
-        (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
-      );
+      const existing = await this.partnaService.findAccountByEmail(user.email);
       
       if (existing) {
         const recoveredName = existing.externalRef || existing.accountName || existing.account_name;
@@ -364,10 +361,7 @@ export class OnboardingService {
         // FIRST: Check if this email already has a Partna account
         // This handles DB wipe / re-registration scenarios
         try {
-          const existingAccounts = await this.partnaService.getAccountDetails();
-          const existingAccount = existingAccounts.find(
-            (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
-          );
+          const existingAccount = await this.partnaService.findAccountByEmail(user.email);
           
           if (existingAccount) {
             // Email already registered on Partna — recover the existing externalRef
@@ -391,11 +385,8 @@ export class OnboardingService {
                 (accountRes.data as any).accountName || finalAccountName;
             } catch (e: any) {
               if (!e.message.includes('exists')) throw e;
-              // If still conflicts, do one more lookup
-              const retryAccounts = await this.partnaService.getAccountDetails();
-              const retryMatch = retryAccounts.find(
-                (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
-              );
+              // If still conflicts, do one more thorough lookup
+              const retryMatch = await this.partnaService.findAccountByEmail(user.email);
               if (retryMatch) {
                 finalAccountName = String(retryMatch.externalRef || retryMatch.accountName || retryMatch.account_name);
                 this.logger.log(`[PARTNA RECOVERY RETRY] Recovered: ${finalAccountName}`);
@@ -505,10 +496,7 @@ export class OnboardingService {
 
         // Check if email already has a Partna account before creating
         try {
-          const existingAccounts = await this.partnaService.getAccountDetails();
-          const existingAccount = existingAccounts.find(
-            (acc: any) => (acc.email || '').toLowerCase() === user.email.toLowerCase()
-          );
+          const existingAccount = await this.partnaService.findAccountByEmail(user.email);
 
           if (existingAccount) {
             finalAccountName = String(existingAccount.externalRef || existingAccount.accountName || existingAccount.account_name);
@@ -529,12 +517,8 @@ export class OnboardingService {
               );
             } catch (e: any) {
               if (!e.message.includes('exists')) throw e;
-              // Race condition fallback
-              const retryAccounts = await this.partnaService.getAccountDetails();
-              const retryMatch = retryAccounts.find(
-                (acc: any) =>
-                  (acc.email || '').toLowerCase() === user.email.toLowerCase(),
-              );
+              // Race condition fallback - thorough search
+              const retryMatch = await this.partnaService.findAccountByEmail(user.email);
               if (retryMatch) {
                 finalAccountName = String(
                   retryMatch.externalRef ||

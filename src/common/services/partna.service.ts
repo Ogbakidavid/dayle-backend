@@ -291,16 +291,18 @@ export class PartnaService {
     const res = await this.request('/account', {
       method: 'POST',
       body: JSON.stringify({
-        accountName: sanitizedName,
         email,
         type,
       }),
     }).catch(async (err) => {
       if (err.message.includes('already exists') || err.message.includes('409')) {
-        this.logger.log(`[PARTNA CREATE ACCOUNT CONFLICT] Account ${email} already exists. Fetching existing profile...`);
-        // If it already exists, fetching the profile will return the same data format
-        const profile = await this.getAccountProfile();
-        return profile;
+        this.logger.log(`[PARTNA CREATE ACCOUNT CONFLICT] Account ${email} already exists. Searching for original identifier...`);
+        // If it already exists, we MUST find the existing accountName/externalRef to avoid 404/500 later
+        const existing = await this.findAccountByEmail(email);
+        if (existing) {
+          // Return a structure compatible with the normal response for recover
+          return { data: { accountName: existing.externalRef || existing.accountName || existing.account_name } as any };
+        }
       }
       throw err;
     });
@@ -320,15 +322,50 @@ export class PartnaService {
 
   /**
    * GET /v4/account/account-details
-   * Fetches all accounts (can be used to find an existing ID by email)
+   * Fetches accounts (paginated)
    */
-  async getAccountDetails() {
-    this.logger.log(`[PARTNA GET ACCOUNT DETAILS REQUEST]`);
-    const res = await this.request<{ accounts?: JsonObject[] }>(
-      '/account/account-details',
+  async getAccountDetails(page: number = 1, perPage: number = 20) {
+    this.logger.log(`[PARTNA GET ACCOUNT DETAILS REQUEST] Page ${page}`);
+    const res = await this.request<{ 
+      accounts?: JsonObject[];
+      totalPages?: number;
+      total?: number;
+      page?: number;
+    }>(
+      `/account/account-details?page=${page}&perPage=${perPage}`,
     );
-    // The response structure: { data: { accounts: [...] } }
-    return res.data?.accounts || [];
+    return res.data || { accounts: [] };
+  }
+
+  /**
+   * Helper to find an account by email across all pages
+   */
+  async findAccountByEmail(email: string) {
+    let currentPage = 1;
+    let totalPages = 1;
+
+    const normalizedEmail = email.toLowerCase();
+
+    try {
+      do {
+        // FIRST: Check if this email already has a Partna account
+        // This handles DB wipe / re-registration scenarios
+        const data = await this.getAccountDetails(currentPage, 50);
+        const accounts = data.accounts || [];
+        totalPages = data.totalPages || 1;
+
+        const match = accounts.find(
+          (acc: any) => (acc.email || '').toLowerCase() === normalizedEmail
+        );
+
+        if (match) return match;
+        currentPage++;
+      } while (currentPage <= totalPages);
+    } catch (e) {
+      this.logger.error(`[PARTNA ACCOUNT SEARCH FAILED] ${e.message}`);
+    }
+
+    return null;
   }
 
   /**
