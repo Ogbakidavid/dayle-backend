@@ -578,17 +578,13 @@ export class DisputesService {
         const fees = calculateDayleFee(vaultAmountUSD);
 
         const treasuryAmountBigInt =
-          (vaultAmountBigInt * BigInt(fees.totalFeeBasisPoints)) / 10000n;
+          (splitAmountBigInt * BigInt(fees.totalFeeBasisPoints)) / 10000n;
 
-        const availableForSplit = vaultAmountBigInt - treasuryAmountBigInt;
-
-        // Ensure freelancer split doesn't exceed available after fee
-        const freelancerAmountBigInt =
-          splitAmountBigInt > availableForSplit
-            ? availableForSplit
-            : splitAmountBigInt;
-        const clientAmountBigInt =
-          vaultAmountBigInt - freelancerAmountBigInt - treasuryAmountBigInt;
+        // Freelancer gets their split MINUS the platform fee
+        const freelancerAmountBigInt = splitAmountBigInt - treasuryAmountBigInt;
+        
+        // Client gets exactly the remaining portion of the vault
+        const clientAmountBigInt = vaultAmountBigInt - splitAmountBigInt;
 
         // Release splitAmount to freelancer
         await tx.ledgerEntry.create({
