@@ -536,8 +536,8 @@ export class BlockchainService implements OnModuleInit {
       (async () => {
         try {
           const current = await this.provider.getBlockNumber();
-          // start from 100 blocks back to catch any missed settlements (approx 400 seconds on Celo)
-          this.vaultLastProcessedBlock.set(vaultAddress, Math.max(0, current - 100));
+          // look back 5,000 blocks (~5.5 hours on Celo) to ensure we didn't miss any events
+          this.vaultLastProcessedBlock.set(vaultAddress, Math.max(0, current - 5000));
         } catch (e) {
           this.logger.error(
             `Error initializing poll state for vault ${vaultAddress}`,
