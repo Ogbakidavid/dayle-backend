@@ -420,40 +420,62 @@ export class BlockchainService implements OnModuleInit {
       });
 
       // Vault Released (Freelancer getting paid)
-      vaultContract.on('VaultReleased', async (freelancer, amount, event) => {
+      vaultContract.on('VaultReleased', async (freelancer, freelancerAmount, treasuryFee, event) => {
         this.logger.log(`Blockchain: Funds released in ${vaultAddress}`);
-        const vault = await this.prisma.vault.findUnique({
+        const vault = await (this.prisma.vault.findUnique as any)({
           where: { vaultAddress },
         });
         if (!vault) return;
 
-        await this.prisma.vault.update({
-          where: { id: vault.id },
-          data: { status: VaultStatus.RELEASED },
-        });
+        await this.prisma.$transaction(async (tx) => {
+          await tx.vault.update({
+            where: { id: vault.id },
+            data: { status: VaultStatus.RELEASED as any },
+          });
 
-        // Resolve related disputes
-        await (this.prisma.dispute as any).updateMany({
-          where: {
-            vaultId: vault.id,
-            status: { notIn: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED] },
-          },
-          data: {
-            status: DisputeStatus.RESOLVED,
-            resolvedAt: new Date(),
-            resolution: 'Resolved on-chain via settlement',
-          },
+          // Resolve related disputes
+          await (tx.dispute as any).updateMany({
+            where: {
+              vaultId: vault.id,
+              status: { notIn: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED] },
+            },
+            data: {
+              status: DisputeStatus.RESOLVED,
+              resolvedAt: new Date(),
+              resolution: 'Resolved on-chain via release sync',
+            },
+          });
+
+          // Create LedgerEntry for freelancer if missing
+          if (vault.freelancerId) {
+            const exists = await (tx.ledgerEntry as any).findFirst({
+              where: {
+                vaultId: vault.id,
+                type: LedgerEntryType.RELEASE,
+                userId: vault.freelancerId,
+              },
+            });
+            if (!exists && BigInt(freelancerAmount || 0) > 0n) {
+              await (tx.ledgerEntry as any).create({
+                data: {
+                  userId: vault.freelancerId,
+                  vaultId: vault.id,
+                  type: LedgerEntryType.RELEASE,
+                  amount: BigInt(freelancerAmount),
+                  status: TransactionStatus.CONFIRMED,
+                  description: 'Auto-sync: On-chain release detected',
+                  completedAt: new Date(),
+                },
+              });
+            }
+          }
         });
 
         // Publish real-time event
         const redis = this.redisService.getClient();
         if (redis) {
-          // Invalidate vault list caches
           await redis.del(`vaults:list:CLIENT:${vault.clientId}`);
-          if (vault.freelancerId) {
-            await redis.del(`vaults:list:FREELANCER:${vault.freelancerId}`);
-          }
-
+          if (vault.freelancerId) await redis.del(`vaults:list:FREELANCER:${vault.freelancerId}`);
           await redis.publish('vault.status_updated', JSON.stringify({
             vaultId: vault.id,
             status: VaultStatus.RELEASED,
@@ -462,7 +484,51 @@ export class BlockchainService implements OnModuleInit {
             title: vault.title,
           }));
         }
+      });
 
+      // Vault Refunded (Client getting money back)
+      vaultContract.on('VaultRefunded', async (client, refundAmount, event) => {
+        this.logger.log(`Blockchain: Funds refunded in ${vaultAddress}`);
+        const vault = await (this.prisma.vault.findUnique as any)({
+          where: { vaultAddress },
+        });
+        if (!vault) return;
+
+        await this.prisma.$transaction(async (tx) => {
+          // Sync LedgerEntry for client if missing
+          const exists = await (tx.ledgerEntry as any).findFirst({
+            where: {
+              vaultId: vault.id,
+              type: LedgerEntryType.REFUND,
+              userId: vault.clientId,
+            },
+          });
+          if (!exists && BigInt(refundAmount || 0) > 0n) {
+            await (tx.ledgerEntry as any).create({
+              data: {
+                userId: vault.clientId,
+                vaultId: vault.id,
+                type: LedgerEntryType.REFUND,
+                amount: BigInt(refundAmount),
+                status: TransactionStatus.CONFIRMED,
+                description: 'Auto-sync: On-chain refund detected',
+                completedAt: new Date(),
+              },
+            });
+          }
+        });
+
+        const redis = this.redisService.getClient();
+        if (redis) {
+          await redis.del(`vaults:list:CLIENT:${vault.clientId}`);
+          if (vault.freelancerId) await redis.del(`vaults:list:FREELANCER:${vault.freelancerId}`);
+          await redis.publish('vault.status_updated', JSON.stringify({
+            vaultId: vault.id,
+            status: vault.status,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+          }));
+        }
       });
     } else {
       // HTTP polling mode: register vault for block-polling processing
@@ -470,8 +536,8 @@ export class BlockchainService implements OnModuleInit {
       (async () => {
         try {
           const current = await this.provider.getBlockNumber();
-          // start from current block so we don't re-process huge history by default
-          this.vaultLastProcessedBlock.set(vaultAddress, current);
+          // start from 100 blocks back to catch any missed settlements (approx 400 seconds on Celo)
+          this.vaultLastProcessedBlock.set(vaultAddress, Math.max(0, current - 100));
         } catch (e) {
           this.logger.error(
             `Error initializing poll state for vault ${vaultAddress}`,

@@ -648,11 +648,16 @@ export class DisputesService {
               treasuryAmountBigInt,
             );
           } catch (e: any) {
-            // Self-healing: if vault is already settled on-chain, allow DB transition to complete
+            // Self-healing: if vault is already settled on-chain or released, allow DB transition to complete
             const errorMsg = e.message || '';
-            if (errorMsg.includes('Already settled') || errorMsg.includes('execution reverted')) {
+            if (
+              errorMsg.includes('Already settled') || 
+              errorMsg.includes('execution reverted') ||
+              errorMsg.includes('already released')
+            ) {
               this.logger.warn(`Vault ${dispute.vault.vaultAddress} already settled on-chain. Proceeding with DB updates.`);
             } else {
+              this.logger.error(`Blockchain settlement failed: ${errorMsg}`);
               throw e;
             }
           }
@@ -693,7 +698,7 @@ export class DisputesService {
       vaultId: dispute.vaultId,
       clientId: dispute.vault.clientId,
       freelancerId: dispute.vault.freelancerId,
-      status: (resolution as any).status === VaultStatus.RELEASED ? VaultStatus.RELEASED : VaultStatus.REFUNDED,
+      status: VaultStatus.RELEASED, // If we reach here, it's released/settled
     });
 
     await this.invalidateVaultCache(
