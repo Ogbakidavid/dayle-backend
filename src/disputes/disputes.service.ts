@@ -560,7 +560,7 @@ export class DisputesService {
         const decimals = (dispute.vault as any).tokenDecimals || 18;
         const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
         const splitAmountBigInt = ethers.parseUnits(
-          splitAmount!.toString(),
+          splitAmount!.toFixed(decimals),
           decimals,
         );
 
