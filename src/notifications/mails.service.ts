@@ -473,7 +473,7 @@ export class MailsService {
             <p>${config.body}</p>
             <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
               <p style="margin: 0;"><strong>Project:</strong> ${vaultTitle}</p>
-              ${offerType === 'split' ? `<p style="margin: 5px 0 0 0;"><strong>${config.detailsLabel}:</strong> ${config.detailsValue}</p>` : ''}
+              ${offerType === 'split' ? `<p style="margin: 5px 0 0 0;"><strong>${(config as any).detailsLabel}:</strong> ${(config as any).detailsValue}</p>` : ''}
               ${notes ? `<p style="margin: 10px 0 0 0;"><strong>Notes:</strong><br/><i>${notes}</i></p>` : ''}
             </div>
             <div style="text-align: center; margin-top: 30px;">
