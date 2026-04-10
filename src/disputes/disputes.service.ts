@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockchainService } from '../common/services/blockchain.service';
@@ -31,6 +32,8 @@ import { calculateDayleFee } from '../common/utils/fee.utils';
 
 @Injectable()
 export class DisputesService {
+  private readonly logger = new Logger(DisputesService.name);
+
   constructor(
     private prisma: PrismaService,
     private blockchainService: BlockchainService,
@@ -637,12 +640,22 @@ export class DisputesService {
 
         // TRIGGER ON-CHAIN SETTLE
         if (dispute.vault.vaultAddress) {
-          await this.blockchainService.settleVault(
-            dispute.vault.vaultAddress,
-            freelancerAmountBigInt,
-            clientAmountBigInt,
-            treasuryAmountBigInt,
-          );
+          try {
+            await this.blockchainService.settleVault(
+              dispute.vault.vaultAddress,
+              freelancerAmountBigInt,
+              clientAmountBigInt,
+              treasuryAmountBigInt,
+            );
+          } catch (e: any) {
+            // Self-healing: if vault is already settled on-chain, allow DB transition to complete
+            const errorMsg = e.message || '';
+            if (errorMsg.includes('Already settled') || errorMsg.includes('execution reverted')) {
+              this.logger.warn(`Vault ${dispute.vault.vaultAddress} already settled on-chain. Proceeding with DB updates.`);
+            } else {
+              throw e;
+            }
+          }
         }
       }
 

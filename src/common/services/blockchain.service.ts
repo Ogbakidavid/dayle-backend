@@ -316,6 +316,12 @@ export class BlockchainService implements OnModuleInit {
                     // Publish real-time event
                     const redis = this.redisService.getClient();
                     if (redis) {
+                      // Invalidate vault list caches
+                      await redis.del(`vaults:list:CLIENT:${vault.clientId}`);
+                      if (vault.freelancerId) {
+                        await redis.del(`vaults:list:FREELANCER:${vault.freelancerId}`);
+                      }
+
                       await redis.publish('vault.status_updated', JSON.stringify({
                         vaultId: vault.id,
                         status: VaultStatus.RELEASED,
@@ -442,6 +448,12 @@ export class BlockchainService implements OnModuleInit {
         // Publish real-time event
         const redis = this.redisService.getClient();
         if (redis) {
+          // Invalidate vault list caches
+          await redis.del(`vaults:list:CLIENT:${vault.clientId}`);
+          if (vault.freelancerId) {
+            await redis.del(`vaults:list:FREELANCER:${vault.freelancerId}`);
+          }
+
           await redis.publish('vault.status_updated', JSON.stringify({
             vaultId: vault.id,
             status: VaultStatus.RELEASED,
