@@ -47,7 +47,7 @@ export class AuthController {
       httpOnly: true,
       secure: true, // Required for sameSite: 'none'
       sameSite: 'none', // Required for cross-site requests (localtunnel to ngrok)
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
     });
   }
 

@@ -653,8 +653,9 @@ export class DisputesService {
       const ninetyPercentLimit = (vaultAmountBigInt * 9n) / 10n;
 
       // Convert proposed amount to BigInt for comparison
+      const formattedAmount = Number(dto.amountToFreelancer).toFixed(decimals);
       const proposedBigInt = ethers.parseUnits(
-        dto.amountToFreelancer.toString(),
+        formattedAmount,
         decimals,
       );
 
@@ -898,8 +899,9 @@ export class DisputesService {
     const vaultAmountBigInt = BigInt(dispute.vault.totalAmount);
     const tenPercentLimit = vaultAmountBigInt / 10n;
     const ninetyPercentLimit = (vaultAmountBigInt * 9n) / 10n;
+    const formattedAmount = Number(amountToFreelancer).toFixed(decimals);
     const proposedBigInt = ethers.parseUnits(
-      amountToFreelancer.toString(),
+      formattedAmount,
       decimals,
     );
 

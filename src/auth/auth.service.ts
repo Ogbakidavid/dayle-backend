@@ -303,12 +303,12 @@ export class AuthService {
     console.log('[privyLogin] Step 5: Creating session for user:', user.id);
     const accessTokenJwt = await this.jwtService.signAsync(payload);
     const refreshTokenJwt = await this.jwtService.signAsync(payload, {
-      expiresIn: '30d',
+      expiresIn: '14d',
     });
 
     // Create Session
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    expiresAt.setDate(expiresAt.getDate() + 14);
 
     await this.prisma.session.upsert({
       where: { accessToken: accessTokenJwt },
