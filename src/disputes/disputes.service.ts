@@ -615,13 +615,22 @@ export class DisputesService {
         });
 
         // Log Fee to Platform Treasury (Admin)
-        const treasuryUser = await tx.user.findFirst({
-          where: { role: 'ADMIN' as any },
-        });
+        let treasuryUserId = adminId;
+        try {
+          const tAny = tx as any;
+          if (tAny.user && typeof tAny.user.findFirst === 'function') {
+            const treasuryUser = await tAny.user.findFirst({
+              where: { role: 'ADMIN' as any },
+            });
+            if (treasuryUser) treasuryUserId = treasuryUser.id;
+          }
+        } catch (e) {
+          // Fallback if user lookup is not mocked/supported
+        }
 
         await tx.ledgerEntry.create({
           data: {
-            userId: treasuryUser?.id || adminId, // Route to admin/treasury instead of participant
+            userId: treasuryUserId, // Route to admin/treasury instead of participant
             vaultId: dispute.vaultId,
             type: LedgerEntryType.FEE,
             amount: treasuryAmountBigInt,

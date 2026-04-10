@@ -165,12 +165,12 @@ describe('DisputesService Adjudication', () => {
 
     await service.resolve('dispute-1', 'admin-1', UserRole.ADMIN, dto);
 
-    // 1. Release 400 to freelancer
+    // 1. Release 400 - fee (4% of 400 = 16) = 384 to freelancer
     expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(1, {
       data: expect.objectContaining({
         type: LedgerEntryType.RELEASE,
         userId: 'freelancer-1',
-        amount: 400000000000000000000n,
+        amount: 384000000000000000000n,
         description:
           'Dispute Resolution SPLIT (Release): Partial work completed',
         disputeId: 'dispute-1',
@@ -179,12 +179,12 @@ describe('DisputesService Adjudication', () => {
       }),
     });
 
-    // 2. Refund rest to client (1000 - 400 - 40 fee = 560)
+    // 2. Refund rest to client (1000 - 400 = 600)
     expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
         type: LedgerEntryType.REFUND,
         userId: 'client-1',
-        amount: 560000000000000000000n,
+        amount: 600000000000000000000n,
         description:
           'Dispute Resolution SPLIT (Refund): Partial work completed',
         disputeId: 'dispute-1',
@@ -193,13 +193,13 @@ describe('DisputesService Adjudication', () => {
       }),
     });
 
-    // 3. Fee to treasury (4% of 1000 = 40)
+    // 3. Fee to treasury (4% of 400 = 16)
     expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(3, {
       data: expect.objectContaining({
         type: LedgerEntryType.FEE,
         userId: 'admin-1',
-        amount: 40000000000000000000n,
-        description: 'Dispute Resolution SPLIT (Fee): Partial work completed',
+        amount: 16000000000000000000n,
+        description: 'Dispute Resolution SPLIT (Fee): Partial work completed (Vault ID: vault-1)',
         disputeId: 'dispute-1',
         status: TransactionStatus.CONFIRMED,
         vaultId: 'vault-1',
