@@ -618,15 +618,19 @@ export class DisputesService {
           },
         });
 
-        // Log Fee
+        // Log Fee to Platform Treasury (Admin)
+        const treasuryUser = await tx.user.findFirst({
+          where: { role: 'ADMIN' as any },
+        });
+
         await tx.ledgerEntry.create({
           data: {
-            userId: adminId, // Routing to treasury conceptually
+            userId: treasuryUser?.id || adminId, // Route to admin/treasury instead of participant
             vaultId: dispute.vaultId,
             type: LedgerEntryType.FEE,
             amount: treasuryAmountBigInt,
             status: TransactionStatus.CONFIRMED,
-            description: `Dispute Resolution SPLIT (Fee): ${notes}`,
+            description: `Dispute Resolution SPLIT (Fee): ${notes} (Vault ID: ${dispute.vaultId})`,
             disputeId: id,
             completedAt: new Date(),
           },
