@@ -673,7 +673,7 @@ export class DisputesService {
       });
 
       return updatedDispute;
-    });
+    }, { timeout: 30000 });
 
     // Publish real-time event
     await this.redis.publish('vault.status_updated', {

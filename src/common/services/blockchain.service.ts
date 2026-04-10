@@ -6,7 +6,10 @@ import {
   LedgerEntryType,
   TransactionStatus,
   VaultStatus,
+  DisputeStatus,
 } from '../../domain/enums';
+import { RedisService } from '../redis/redis.service';
+
 
 // ABIs
 let VaultFactoryABI: any = [];
@@ -37,6 +40,7 @@ export class BlockchainService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private redisService: RedisService,
   ) {}
 
   onModuleInit() {
@@ -295,6 +299,31 @@ export class BlockchainService implements OnModuleInit {
                       where: { id: vault.id },
                       data: { status: VaultStatus.RELEASED },
                     });
+
+                    // Resolve related disputes
+                    await (this.prisma.dispute as any).updateMany({
+                      where: {
+                        vaultId: vault.id,
+                        status: { notIn: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED] },
+                      },
+                      data: {
+                        status: DisputeStatus.RESOLVED,
+                        resolvedAt: new Date(),
+                        resolution: 'Resolved on-chain via settlement',
+                      },
+                    });
+
+                    // Publish real-time event
+                    const redis = this.redisService.getClient();
+                    if (redis) {
+                      await redis.publish('vault.status_updated', JSON.stringify({
+                        vaultId: vault.id,
+                        status: VaultStatus.RELEASED,
+                        clientId: vault.clientId,
+                        freelancerId: vault.freelancerId,
+                        title: vault.title,
+                      }));
+                    }
                   })();
                 }
 
@@ -369,6 +398,19 @@ export class BlockchainService implements OnModuleInit {
           where: { id: vault.id },
           data: { status: VaultStatus.FUNDED },
         });
+
+        // Publish real-time event
+        const redis = this.redisService.getClient();
+        if (redis) {
+          await redis.publish('vault.status_updated', JSON.stringify({
+            vaultId: vault.id,
+            status: VaultStatus.FUNDED,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+            title: vault.title,
+          }));
+        }
+
       });
 
       // Vault Released (Freelancer getting paid)
@@ -383,6 +425,32 @@ export class BlockchainService implements OnModuleInit {
           where: { id: vault.id },
           data: { status: VaultStatus.RELEASED },
         });
+
+        // Resolve related disputes
+        await (this.prisma.dispute as any).updateMany({
+          where: {
+            vaultId: vault.id,
+            status: { notIn: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED] },
+          },
+          data: {
+            status: DisputeStatus.RESOLVED,
+            resolvedAt: new Date(),
+            resolution: 'Resolved on-chain via settlement',
+          },
+        });
+
+        // Publish real-time event
+        const redis = this.redisService.getClient();
+        if (redis) {
+          await redis.publish('vault.status_updated', JSON.stringify({
+            vaultId: vault.id,
+            status: VaultStatus.RELEASED,
+            clientId: vault.clientId,
+            freelancerId: vault.freelancerId,
+            title: vault.title,
+          }));
+        }
+
       });
     } else {
       // HTTP polling mode: register vault for block-polling processing
