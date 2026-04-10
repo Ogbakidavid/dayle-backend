@@ -138,4 +138,9 @@ export class DisputesController {
   ) {
     return this.disputesService.requestTotalRelease(id, userId, dto.notes);
   }
+
+  @Post(':id/escalate')
+  async escalate(@Param('id') id: string, @User('id') userId: string) {
+    return this.disputesService.escalate(id, userId);
+  }
 }

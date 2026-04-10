@@ -109,6 +109,81 @@ export class DisputesService {
     }
   }
 
+  async escalate(id: string, userId: string) {
+    const prisma = this.prisma;
+    const dispute = await prisma.dispute.findUnique({
+      where: { id },
+      include: { vault: true },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    const isParticipant =
+      dispute.vault.clientId === userId ||
+      dispute.vault.freelancerId === userId;
+    if (!isParticipant) throw new ForbiddenException('Not authorized');
+
+    if (dispute.status !== DisputeStatus.MUTUAL_RESOLUTION) {
+      throw new BadRequestException(
+        'Dispute is not in Mutual Resolution phase',
+      );
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      await tx.dispute.update({
+        where: { id },
+        data: { status: DisputeStatus.UNDER_REVIEW as any },
+      });
+
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      const roleName =
+        userId === dispute.vault.clientId ? 'Client' : 'Freelancer';
+
+      await tx.disputeEvent.create({
+        data: {
+          disputeId: id,
+          actorId: userId,
+          actorRole:
+            userId === dispute.vault.clientId
+              ? (UserRole.CLIENT as any)
+              : (UserRole.FREELANCER as any),
+          eventType: 'ESCALATED',
+          payload: {
+            reason: `Manually escalated by ${roleName} (${user?.name})`,
+          },
+        },
+      });
+
+      // Internal notifications
+      const msg = `This dispute has been manually escalated to platform review by ${user?.name}.`;
+
+      // Notify Client
+      await this.notificationsService.createNotification(
+        dispute.vault.clientId,
+        {
+          type: 'dispute',
+          title: 'Dispute Escalated to Arbitration',
+          message: msg,
+          action: `/client/disputes/${id}`,
+        },
+      );
+
+      // Notify Freelancer
+      if (dispute.vault.freelancerId) {
+        await this.notificationsService.createNotification(
+          dispute.vault.freelancerId,
+          {
+            type: 'dispute',
+            title: 'Dispute Escalated to Arbitration',
+            message: msg,
+            action: `/freelancer/disputes/${id}`,
+          },
+        );
+      }
+
+      return dispute;
+    });
+  }
+
   // ... (create, list, getById, investigate methods)
 
   async create(userId: string, role: UserRole, dto: CreateDisputeDto) {
@@ -372,30 +447,38 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
 
-    if (!adminId) {
-      throw new UnauthorizedException('Admin ID is missing from request');
-    }
-
-    // Only Admins can resolve (Checking both User table for social admins and Admin table for dashboard admins)
+    // Only Admins or Participants in Mutual Resolution can resolve
     let isAuthorized = false;
-    const userAdmin = await prisma.user.findUnique({
-      where: { id: adminId },
-      select: { role: true },
-    });
-
-    if (userAdmin && userAdmin.role === UserRole.ADMIN) {
-      isAuthorized = true;
-    } else {
-      const explicitAdmin = await prisma.admin.findUnique({
-        where: { id: adminId },
-      });
-      if (explicitAdmin) {
+    if (role === 'PARTICIPANT') {
+      const isParticipant =
+        dispute.vault.clientId === adminId ||
+        dispute.vault.freelancerId === adminId;
+      if (isParticipant) {
         isAuthorized = true;
+      }
+    } else {
+      // Checking both User table for social admins and Admin table for dashboard admins
+      const userAdmin = await prisma.user.findUnique({
+        where: { id: adminId },
+        select: { role: true },
+      });
+
+      if (userAdmin && userAdmin.role === UserRole.ADMIN) {
+        isAuthorized = true;
+      } else {
+        const explicitAdmin = await prisma.admin.findUnique({
+          where: { id: adminId },
+        });
+        if (explicitAdmin) {
+          isAuthorized = true;
+        }
       }
     }
 
     if (!isAuthorized) {
-      throw new ForbiddenException('Only admins can resolve disputes');
+      throw new ForbiddenException(
+        role === 'PARTICIPANT' ? 'Not authorized' : 'Only admins can resolve disputes',
+      );
     }
 
     if (
@@ -405,7 +488,7 @@ export class DisputesService {
       throw new BadRequestException('Dispute is already closed');
     }
 
-    if (dispute.status === DisputeStatus.MUTUAL_RESOLUTION) {
+    if (dispute.status === DisputeStatus.MUTUAL_RESOLUTION && role !== 'PARTICIPANT') {
       throw new BadRequestException(
         'This dispute is still in the Mutual Resolution phase. Admins can only resolve cases once they have been escalated to Phase 2 (Expert Review).',
       );
@@ -574,11 +657,16 @@ export class DisputesService {
       });
 
       // 3. Log Event
+      let actorRole = UserRole.ADMIN as any;
+      if (role === 'PARTICIPANT') {
+        actorRole = adminId === dispute.vault.clientId ? UserRole.CLIENT : UserRole.FREELANCER;
+      }
+      
       await tx.disputeEvent.create({
         data: {
           disputeId: id,
           actorId: adminId,
-          actorRole: UserRole.ADMIN,
+          actorRole,
           eventType: 'RESOLVED',
           payload: { outcome, splitAmount, notes },
         },
@@ -611,7 +699,14 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { vault: true },
+      include: {
+        vault: {
+          include: {
+            client: { select: { id: true, name: true, email: true } },
+            freelancer: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');
@@ -689,18 +784,33 @@ export class DisputesService {
       });
 
       // 4. Send Notifications
+      const actionLink = `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/disputes/${id}`;
       const msg = 'New offer received — the 48-hour window has been reset.';
-      const otherPartyId =
+      const otherParty =
         userId === dispute.vault.clientId
-          ? dispute.vault.freelancerId
-          : dispute.vault.clientId;
-      if (otherPartyId) {
-        await this.notificationsService.createNotification(otherPartyId, {
+          ? dispute.vault.freelancer
+          : dispute.vault.client;
+
+      if (otherParty) {
+        // Internal App Notification
+        await this.notificationsService.createNotification(otherParty.id, {
           type: 'dispute',
           title: 'New Offer Received',
           message: msg,
-          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+          action: actionLink,
         });
+
+        // Email Notification
+        await this.mailsService.sendDisputeOfferEmail(
+          otherParty.email,
+          otherParty.name,
+          dispute.vault.title,
+          'split',
+          actionLink,
+          user.name,
+          dto.amountToFreelancer,
+          dto.notes,
+        );
       }
 
       return dispute;
@@ -713,7 +823,14 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { vault: true },
+      include: {
+        vault: {
+          include: {
+            client: { select: { id: true, name: true, email: true } },
+            freelancer: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');
@@ -764,18 +881,33 @@ export class DisputesService {
       });
 
       // 4. Notifications
+      const actionLink = `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/disputes/${id}`;
       const msg = 'New offer received — the 48-hour window has been reset.';
-      const otherPartyId =
+      const otherParty =
         userId === dispute.vault.clientId
-          ? dispute.vault.freelancerId
-          : dispute.vault.clientId;
-      if (otherPartyId) {
-        await this.notificationsService.createNotification(otherPartyId, {
+          ? dispute.vault.freelancer
+          : dispute.vault.client;
+
+      if (otherParty) {
+        // Internal App Notification
+        await this.notificationsService.createNotification(otherParty.id, {
           type: 'dispute',
           title: 'Total Refund Requested',
           message: msg,
-          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+          action: actionLink,
         });
+
+        // Email Notification
+        await this.mailsService.sendDisputeOfferEmail(
+          otherParty.email,
+          otherParty.name,
+          dispute.vault.title,
+          'refund',
+          actionLink,
+          user.name,
+          undefined,
+          notes,
+        );
       }
 
       return dispute;
@@ -786,7 +918,14 @@ export class DisputesService {
     const prisma = this.prisma;
     const dispute = await prisma.dispute.findUnique({
       where: { id },
-      include: { vault: true },
+      include: {
+        vault: {
+          include: {
+            client: { select: { id: true, name: true, email: true } },
+            freelancer: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');
@@ -837,18 +976,33 @@ export class DisputesService {
       });
 
       // 4. Notifications
+      const actionLink = `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/disputes/${id}`;
       const msg = 'New offer received — the 48-hour window has been reset.';
-      const otherPartyId =
+      const otherParty =
         userId === dispute.vault.clientId
-          ? dispute.vault.freelancerId
-          : dispute.vault.clientId;
-      if (otherPartyId) {
-        await this.notificationsService.createNotification(otherPartyId, {
+          ? dispute.vault.freelancer
+          : dispute.vault.client;
+
+      if (otherParty) {
+        // Internal App Notification
+        await this.notificationsService.createNotification(otherParty.id, {
           type: 'dispute',
           title: 'Total Release Requested',
           message: msg,
-          action: `/${userId === dispute.vault.clientId ? 'freelancer' : 'client'}/dispute/${id}`,
+          action: actionLink,
         });
+
+        // Email Notification
+        await this.mailsService.sendDisputeOfferEmail(
+          otherParty.email,
+          otherParty.name,
+          dispute.vault.title,
+          'release',
+          actionLink,
+          user.name,
+          undefined,
+          notes,
+        );
       }
 
       return dispute;

@@ -140,6 +140,47 @@ export class MailsService {
     );
   }
 
+  async sendDisputeOfferEmail(
+    to: string,
+    userName: string,
+    vaultTitle: string,
+    offerType: 'split' | 'refund' | 'release',
+    actionLink: string,
+    otherPartyName: string,
+    amountToFreelancer?: number,
+    notes?: string,
+  ) {
+    if (!this.mailQueue) {
+      this.logger.warn(
+        'Mail queue is not available. Skipping dispute offer email queuing.',
+      );
+      return;
+    }
+
+    this.logger.log(`Queueing dispute offer email (${offerType}) to ${to}...`);
+    await this.mailQueue.add(
+      'sendDisputeOffer',
+      {
+        to,
+        userName,
+        vaultTitle,
+        offerType,
+        actionLink,
+        otherPartyName,
+        amountToFreelancer,
+        notes,
+      },
+      {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: true,
+      },
+    );
+  }
+
   /**
    * Internal method called by the MailProcessor to execute the actual sending.
    */
@@ -369,6 +410,87 @@ export class MailsService {
       return data;
     } catch (err) {
       this.logger.error(`Failed to send status email (${eventType}):`, err);
+      throw err;
+    }
+  }
+
+  async handleSendDisputeOfferEmail(
+    to: string,
+    userName: string,
+    vaultTitle: string,
+    offerType: 'split' | 'refund' | 'release',
+    actionLink: string,
+    otherPartyName: string,
+    amountToFreelancer?: number,
+    notes?: string,
+  ) {
+    const offerConfig = {
+      split: {
+        subject: `Dayle: New settlement offer received for "${vaultTitle}"`,
+        title: 'New Settlement Offer',
+        body: `<strong>${otherPartyName}</strong> has proposed a new settlement split for the ongoing dispute in the project <strong>"${vaultTitle}"</strong>.`,
+        detailsLabel: 'Proposed to Freelancer',
+        detailsValue: `$${amountToFreelancer?.toLocaleString() || '0.00'} USD`,
+        color: '#f59e0b',
+      },
+      refund: {
+        subject: `Dayle: Full refund requested for "${vaultTitle}"`,
+        title: 'Total Refund Requested',
+        body: `<strong>${otherPartyName}</strong> has requested to settle the dispute with a <strong>total refund</strong> for the project <strong>"${vaultTitle}"</strong>.`,
+        color: '#ef4444',
+      },
+      release: {
+        subject: `Dayle: Full release requested for "${vaultTitle}"`,
+        title: 'Total Release Requested',
+        body: `<strong>${otherPartyName}</strong> has requested to settle the dispute by <strong>releasing all funds</strong> to the freelancer for the project <strong>"${vaultTitle}"</strong>.`,
+        color: '#10b981',
+      },
+    };
+
+    const config = offerConfig[offerType];
+    const fullActionLink = `${this.configService.get('FRONTEND_URL') || 'http://localhost:3000'}${actionLink}`;
+
+    if (!this.resend) {
+      this.logger.log(`[MOCK EMAIL] To: ${to} | Subject: ${config.subject}`);
+      this.logger.log(`[MOCK EMAIL] Content: Hello ${userName}, ${config.body} Link: ${fullActionLink}`);
+      return;
+    }
+
+    try {
+      const fromName = this.configService.get<string>('RESEND_FROM_NAME') || 'Dayle';
+      const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'notifications@orynexlabs.com';
+
+      const { data, error } = await this.resend.emails.send({
+        from: `${fromName} <${fromEmail}>`,
+        to: [to],
+        subject: config.subject,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: ${config.color};">${config.title}</h2>
+            </div>
+            <p>Hello ${userName},</p>
+            <p>${config.body}</p>
+            <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Project:</strong> ${vaultTitle}</p>
+              ${offerType === 'split' ? `<p style="margin: 5px 0 0 0;"><strong>${config.detailsLabel}:</strong> ${config.detailsValue}</p>` : ''}
+              ${notes ? `<p style="margin: 10px 0 0 0;"><strong>Notes:</strong><br/><i>${notes}</i></p>` : ''}
+            </div>
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="${fullActionLink}" style="display: inline-block; padding: 12px 24px; background-color: #000; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold;">View Offer & Respond</a>
+            </div>
+            <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;" />
+            <p style="font-size: 12px; color: #666; text-align: center;">
+              This is an automated notification from Dayle. Both parties have 48 hours to respond to an offer before platform mediation begins.
+            </p>
+          </div>
+        `,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    } catch (err) {
+      this.logger.error(`Failed to send dispute offer email (${offerType}):`, err);
       throw err;
     }
   }

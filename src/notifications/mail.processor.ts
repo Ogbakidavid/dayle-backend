@@ -57,5 +57,19 @@ export class MailProcessor extends WorkerHost {
         notes,
       );
     }
+
+    if (job.name === 'sendDisputeOffer') {
+      const { to, userName, vaultTitle, offerType, actionLink, otherPartyName, amountToFreelancer, notes } = job.data;
+      return this.mailsService.handleSendDisputeOfferEmail(
+        to,
+        userName,
+        vaultTitle,
+        offerType,
+        actionLink,
+        otherPartyName,
+        amountToFreelancer,
+        notes,
+      );
+    }
   }
 }
