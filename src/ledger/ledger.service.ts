@@ -34,22 +34,36 @@ export class LedgerService {
     const isClient = role.toUpperCase() === 'CLIENT';
 
     const available = entries.reduce((sum, entry) => {
-      if (
-        isClient &&
-        (entry.type === LedgerEntryType.DEPOSIT ||
-          entry.type === LedgerEntryType.FEE)
-      ) {
+      // Logic for Clients (Money in/out of their account)
+      if (isClient) {
+        // REFUND adds to balance (as a positive number in DB)
+        if (entry.type === LedgerEntryType.REFUND) return sum + entry.amount;
+        
+        // WITHDRAW / FEE / DEPOSIT (Funding) subtract from balance if negative,
+        // but currently funding/deposits are recorded as positive when sent TO the system.
+        // We need to ensure we only sum what's actually entering/leaving the account.
+        if (entry.type === LedgerEntryType.WITHDRAW || entry.type === LedgerEntryType.FEE) {
+          return sum + entry.amount; // Withdraw/Fee are stored as negative
+        }
+        
+        // For clients, DEPOSIT (vault funding) counts as money ALREADY spent/locked.
+        // It should NOT be part of 'available' for new spending.
+        return sum;
+      } 
+      
+      // Logic for Freelancers (Earnings)
+      else {
+        // Only RELEASE entries (from completed vaults or settled disputes) count as available earnings.
+        if (entry.type === LedgerEntryType.RELEASE) return sum + entry.amount;
+        
+        // Withdrawals and Fees subtract from available
+        if (entry.type === LedgerEntryType.WITHDRAW || entry.type === LedgerEntryType.FEE) {
+          return sum + entry.amount; // Negative amount
+        }
+        
+        // Other types (LOCK, DEPOSIT) are ignored for available balance
         return sum;
       }
-      if (!isClient && entry.type === LedgerEntryType.LOCK) {
-        return sum;
-      }
-      // For clients, DEPOSIT/FEE only count towards available if CONFIRMED
-      if (isClient && entry.status === TransactionStatus.PENDING && (entry.type === LedgerEntryType.DEPOSIT || entry.type === LedgerEntryType.FEE)) {
-        return sum;
-      }
-      // Deduct PENDING withdrawals and fees immediately from available
-      return sum + entry.amount;
     }, BigInt(0));
 
     const pendingEntries = await prisma.ledgerEntry.findMany({
@@ -80,7 +94,8 @@ export class LedgerService {
       available: available.toString(),
       pending: pending.toString(),
       total: (available + pending).toString(),
-      formattedAvailable: ethers.formatUnits(available, 6), // Default to 6 decimals for USDC/USDT/CUSD
+      // Use 18 decimals for internal NGN/USD conversions unless specific token specified
+      formattedAvailable: ethers.formatUnits(available, 6),
       formattedPending: ethers.formatUnits(pending, 6),
       formattedTotal: ethers.formatUnits(available + pending, 6),
     };
