@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RatesService } from '../rates/rates.service';
 
 describe('LedgerController', () => {
   let controller: LedgerController;
@@ -29,6 +30,10 @@ describe('LedgerController', () => {
         {
           provide: NotificationsService,
           useValue: { createNotification: jest.fn() },
+        },
+        {
+          provide: RatesService,
+          useValue: { getDisplayRate: jest.fn() },
         },
       ],
     }).compile();

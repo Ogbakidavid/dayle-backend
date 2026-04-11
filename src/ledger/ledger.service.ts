@@ -11,6 +11,7 @@ import { WithdrawDto } from './dto/withdraw.dto';
 import { PaymentRouter } from '../common/services/payment-router.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
+import { RatesService } from '../rates/rates.service';
 import { ethers } from 'ethers';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class LedgerService {
     private paymentRouter: PaymentRouter,
     private notificationsService: NotificationsService,
     private configService: ConfigService,
+    private ratesService: RatesService,
   ) {}
 
   async getBalance(userId: string, role: string) {
@@ -150,13 +152,26 @@ export class LedgerService {
     });
     if (existing) return existing.responseBody;
 
-    // 3. Check Balance
-    const balance = await this.getBalance(userId, role);
-    // Stablecoins (cUSD, USDC, USDT) use 6 decimals; this must be consistent with
-    // getBalance() which also formats to 6 decimals. Do NOT use 18 here.
+    // 3. Resolve internal USD amount from provided local amount
     const DECIMALS = 6;
+    let amountUSD = dto.amount;
+    let rate = 1;
+
+    if (dto.currency && dto.currency !== 'USD') {
+      try {
+        const rateResult = await this.ratesService.getDisplayRate(dto.currency, dto.amount);
+        rate = rateResult.rate;
+        amountUSD = dto.amount / rate;
+      } catch (err) {
+        // Fallback to 1-to-1 if rate fails (safeguard)
+        amountUSD = dto.amount;
+      }
+    }
+
+    // 4. Check Balance (Checks available balance against internal USD amount)
+    const balance = await this.getBalance(userId, role);
     const withdrawAmountBigInt = ethers.parseUnits(
-      dto.amount.toString(),
+      amountUSD.toFixed(DECIMALS),
       DECIMALS,
     );
 
@@ -167,39 +182,39 @@ export class LedgerService {
       });
     }
 
-    // 4. Create Withdrawal Record (LedgerEntry)
+    // 5. Create Withdrawal Record (LedgerEntry)
     const result = await prisma.$transaction(async (tx) => {
       const providerRef = `withdraw_${userId}_${Date.now()}`;
 
-      // Fee calculation
+      // Fee calculation (based on internal USD for ledger integrity)
       const PROVIDER_FEE_PERCENT = 0.01; // 1.0% (Partna)
       const APP_FEE_PERCENT = 0.005; // 0.5% (Dayle)
 
-      const providerFee = dto.amount * PROVIDER_FEE_PERCENT;
-      const appFee = dto.amount * APP_FEE_PERCENT;
-      const totalFees = providerFee + appFee;
-      const netAmount = dto.amount - totalFees;
+      const providerFeeUSD = amountUSD * PROVIDER_FEE_PERCENT;
+      const appFeeUSD = amountUSD * APP_FEE_PERCENT;
+      
+      // Calculate final local amounts for the provider
+      const totalFeesUSD = providerFeeUSD + appFeeUSD;
+      const netAmountUSD = amountUSD - totalFeesUSD;
+      const netAmountLocal = netAmountUSD * rate;
 
-      // BigInt conversions for ledger — use same DECIMALS for consistency
+      // BigInt conversions for ledger
       const appFeeBigInt = ethers.parseUnits(
-        appFee.toFixed(DECIMALS),
-        DECIMALS,
-      );
-      const netAmountBigInt = ethers.parseUnits(
-        netAmount.toFixed(DECIMALS),
+        appFeeUSD.toFixed(DECIMALS),
         DECIMALS,
       );
 
-      // 4a. Create gross withdrawal entry
+      // 5a. Create gross withdrawal entry (Negative USD for balance)
       const entry = await tx.ledgerEntry.create({
         data: {
           userId,
           type: LedgerEntryType.WITHDRAW,
-          amount: -withdrawAmountBigInt, // Negative for withdrawal
-          currency: dto.currency || 'USD',
+          amount: -withdrawAmountBigInt, 
+          currency: 'USD', // Ledger always tracks USD equivalent
           status: TransactionStatus.PENDING,
-          description: `Withdrawal to bank account ***${dto.bankDetails.accountNumber.slice(-4)}`,
+          description: `Withdrawal of ${dto.amount} ${dto.currency} to bank ***${dto.bankDetails.accountNumber.slice(-4)}`,
           providerRef,
+          partnaFee: providerFeeUSD * rate, // Store fee in local currency for transparency
         },
       });
 
@@ -216,15 +231,15 @@ export class LedgerService {
         },
       });
 
-      // Trigger Payment Router (Offramp) with NET amount
+      // Trigger Payment Router (Offramp) with NET amount (LOCAL CURRENCY)
       const user = await tx.user.findUnique({ where: { id: userId } });
       const offrampResult = await this.paymentRouter.initiateOfframp({
-        amount: netAmount, // Send ONLY the net amount
-        currency: dto.currency || 'USD',
+        amount: netAmountLocal, 
+        currency: dto.currency || 'NGN',
         reference: providerRef,
         bankDetails: {
           account_number: dto.bankDetails.accountNumber,
-          bank_code: dto.bankDetails.routingNumber,
+          bank_code: dto.bankDetails.bankName, // Use bank name if they don't provide code
           account_name: dto.bankDetails.accountName,
         },
         customerEmail: user?.email || '',
@@ -235,9 +250,10 @@ export class LedgerService {
         id: entry.id,
         createdAt: entry.createdAt,
         type: 'WITHDRAW',
-        amount: entry.amount.toString(),
-        netAmount: netAmount.toString(),
-        totalFees: totalFees.toString(),
+        amount: dto.amount.toString(),
+        netAmount: netAmountUSD.toString(),
+        netAmountLocal: netAmountLocal,
+        totalFees: (totalFeesUSD * rate).toString(),
         currency: dto.currency || 'USD',
         status: entry.status,
         providerRef,
@@ -267,5 +283,47 @@ export class LedgerService {
     });
 
     return result;
+  }
+
+  async getWithdrawalPreview(userId: string, amount: number, targetCurrency: string) {
+    const APP_FEE_PERCENT = 0.005; // 0.5%
+    const PROVIDER_FEE_PERCENT = 0.01; // 1.0%
+
+    let rate = 1;
+    let amountUSD = amount;
+
+    if (targetCurrency !== 'USD') {
+      try {
+        // Fetch current rate for internal conversion
+        const rateResult = await this.ratesService.getDisplayRate(targetCurrency, amount);
+        rate = rateResult.rate;
+        // If the user provided a local amount (e.g. 50,000 NGN), calculate the USD equivalent
+        // Rate is units-per-USD (e.g. 1700 NGN/USD)
+        amountUSD = amount / rate;
+      } catch (err) {
+        rate = 1;
+        amountUSD = amount;
+      }
+    }
+
+    const appFeeUSD = amountUSD * APP_FEE_PERCENT;
+    const amountAfterAppFeeUSD = amountUSD - appFeeUSD;
+
+    const grossLocal = amountAfterAppFeeUSD * rate;
+    const providerFeeLocal = grossLocal * PROVIDER_FEE_PERCENT;
+    const netLocal = grossLocal - providerFeeLocal;
+
+    return {
+      dayleFeePercent: APP_FEE_PERCENT * 100,
+      dayleFeeUSD: appFeeUSD,
+      dayleFeeLocal: appFeeUSD * rate,
+      partnaFeePercent: PROVIDER_FEE_PERCENT * 100,
+      partnaFeeLocal: providerFeeLocal,
+      vaultAmountUSD: amountUSD, // Internally tracked
+      vaultAmountLocal: amount,  // The local amount the user specified
+      netAmountLocal: netLocal,
+      currency: targetCurrency,
+      rate,
+    };
   }
 }

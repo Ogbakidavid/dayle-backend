@@ -162,6 +162,7 @@ model Vault {
   partnaRateKey          String?
   partnaFromAmount       Float?
   partnaFromCurrency     String?
+  partnaDepositFee       Float?   // Partna's fee in local currency (NGN or KES)
   paycrestOrderId        String?        @unique
   paycrestReceiveAddress String?
   paycrestValidUntil     DateTime?
@@ -294,6 +295,7 @@ model LedgerEntry {
   status      TransactionStatus @default(PENDING)
   description String
   providerRef String?
+  partnaFee   Float?
   disputeId   String?
   createdAt   DateTime          @default(now())
   completedAt DateTime?

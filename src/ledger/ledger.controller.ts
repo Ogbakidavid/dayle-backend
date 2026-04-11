@@ -42,4 +42,13 @@ export class LedgerController {
   ) {
     return this.ledgerService.withdraw(userId, role, dto);
   }
+
+  @Get('withdraw-preview')
+  async withdrawPreview(
+    @User('id') userId: string,
+    @Query('amount') amount: number,
+    @Query('currency') currency: string,
+  ) {
+    return this.ledgerService.getWithdrawalPreview(userId, amount, currency);
+  }
 }

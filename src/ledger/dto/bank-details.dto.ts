@@ -7,9 +7,9 @@ export class BankDetailsDto {
   accountNumber: string;
 
   @IsString()
-  @MinLength(9)
-  @MaxLength(9)
-  routingNumber: string;
+  @MinLength(2)
+  @MaxLength(100)
+  bankName: string;
 
   @IsString()
   @MinLength(2)

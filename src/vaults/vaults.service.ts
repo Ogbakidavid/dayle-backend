@@ -479,6 +479,14 @@ export class VaultsService {
             ? vault.partnaExpiryDate.toISOString()
             : new Date().toISOString(),
         },
+        feeBreakdown: {
+          dayleFeePercent: 0.5,
+          dayleFeeLocal: vault.partnaFromAmount ? Number((vault.partnaFromAmount * 0.005 / 1.005).toFixed(2)) : null,
+          partnaFeeLocal: vault.partnaDepositFee ?? null,
+          currency: vault.partnaFromCurrency,
+          totalLocal: vault.partnaFromAmount,
+          vaultAmountLocal: vault.partnaFromAmount ? Number((vault.partnaFromAmount / 1.005).toFixed(2)) : null,
+        },
       };
     }
 
@@ -627,6 +635,7 @@ export class VaultsService {
         partnaFromCurrency: currency,
         partnaRampReference: rampReference,
         partnaRateKey: rateKey,
+        partnaDepositFee: typeof rampData.feeInFromCurrency === 'number' ? rampData.feeInFromCurrency : null,
         localAmount: fromAmount,
       },
     });
@@ -674,6 +683,14 @@ export class VaultsService {
         currency: currency,
         reference: rampReference,
         expiresAt: new Date(expiryTimestamp * 1000).toISOString(),
+      },
+      feeBreakdown: {
+        dayleFeePercent: 0.5,
+        dayleFeeLocal: fromAmount ? Number((fromAmount * 0.005 / 1.005).toFixed(2)) : null,  // Extract Dayle's 0.5% from gross
+        partnaFeeLocal: rampData.feeInFromCurrency ?? null,  // Direct from Partna
+        currency: currency,
+        totalLocal: fromAmount,  // What user actually sends
+        vaultAmountLocal: fromAmount ? Number((fromAmount / 1.005).toFixed(2)) : null,  // Net amount before Dayle fee
       },
       partnaFee: rampData.feeInFromCurrency,
     };
@@ -1517,6 +1534,7 @@ export class VaultsService {
       partnaFromCurrency: vault.partnaFromCurrency,
       partnaRampReference: vault.partnaRampReference,
       partnaRateKey: vault.partnaRateKey,
+      partnaDepositFee: vault.partnaDepositFee,
       ledgerEntries: vault.ledgerEntries || [],
     };
   }

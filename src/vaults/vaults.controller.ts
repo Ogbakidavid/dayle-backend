@@ -129,7 +129,7 @@ export class VaultsController {
   ) {
     return this.vaultsService.initiateWithdrawal(id, userId, bankDetails);
   }
-
+  
   @Get(':id/payment-callback')
   async handlePartnaCallback(
     @Param('id') id: string,
