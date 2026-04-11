@@ -673,6 +673,23 @@ export class DisputesService {
         }
       }
 
+      const decimals = (dispute.vault as any).tokenDecimals || 18;
+      const totalAmountNum = Number(ethers.formatUnits(dispute.vault.totalAmount, decimals));
+      
+      let freelancerPercent = 0;
+      let clientPercent = 0;
+
+      if (outcome === DisputeResolutionOutcome.RELEASE) {
+        freelancerPercent = 100;
+        clientPercent = 0;
+      } else if (outcome === DisputeResolutionOutcome.REFUND) {
+        freelancerPercent = 0;
+        clientPercent = 100;
+      } else if (outcome === DisputeResolutionOutcome.SPLIT && splitAmount) {
+        freelancerPercent = Math.round((splitAmount / totalAmountNum) * 100);
+        clientPercent = 100 - freelancerPercent;
+      }
+
       // 2. Update Dispute
       const updatedDispute = await tx.dispute.update({
         where: { id },
@@ -680,6 +697,14 @@ export class DisputesService {
           status: DisputeStatus.RESOLVED,
           resolution: notes,
           resolvedAt: new Date(),
+          resolutionType: role === 'PARTICIPANT' ? 'MEDIATION' : 'ARBITRATION',
+          resolutionPayload: {
+            outcome,
+            freelancerPercent,
+            clientPercent,
+            totalAmount: totalAmountNum,
+            splitAmount: splitAmount || 0,
+          },
         },
       });
 

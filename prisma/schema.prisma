@@ -238,6 +238,8 @@ model Dispute {
   status                    DisputeStatus  @default(OPEN)
   description               String
   resolution                String?
+  resolutionPayload         Json?          // Stores details: { type: 'SPLIT' | 'REFUND' | 'RELEASE', splitFreelancer?: number, splitClient?: number }
+  resolutionType            String?        // 'MEDIATION' or 'ARBITRATION'
   createdAt                 DateTime       @default(now())
   updatedAt                 DateTime       @updatedAt
   resolvedAt                DateTime?
