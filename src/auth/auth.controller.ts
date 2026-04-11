@@ -20,15 +20,22 @@ import { User } from '../common/decorators/user.decorator';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  @Public()
   @Post('logout')
   async logout(
-    @User('id') userId: string,
+    @User('id') userId: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body() body: { token?: string },
   ) {
-    await this.authService.logout(userId);
+    // We attempt to get the token from the body or the decorator if it survived verification
+    const token = body.token;
+    
+    const result = await this.authService.logout(userId, token);
+    
     response.clearCookie('access_token');
     response.clearCookie('refresh_token');
-    return { success: true };
+    
+    return result;
   }
 
   private setTokensInCookies(

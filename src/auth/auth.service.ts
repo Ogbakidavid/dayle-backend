@@ -332,14 +332,44 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string, token?: string) {
-    if (token) {
-      await this.blacklistToken(token);
+  async logout(userId?: string, token?: string) {
+    console.log(`[logout] Initiating logout for user: ${userId || 'unknown'}, token provided: ${!!token}`);
+    
+    try {
+      // 1. Blacklist the token in Redis if provided (Prevents immediate reuse)
+      if (token) {
+        await this.blacklistToken(token).catch((err) =>
+          console.error('[logout] Token blacklist failed:', err.message),
+        );
+      }
+
+      // 2. Clear matching session in Database
+      if (userId && token) {
+        await this.prisma.session
+          .deleteMany({
+            where: {
+              userId,
+              accessToken: token,
+            },
+          })
+          .catch((err) =>
+            console.error('[logout] Database session removal failed:', err.message),
+          );
+      }
+
+      return {
+        success: true,
+        message: 'Logged out successfully',
+      };
+    } catch (error) {
+      // We always return success: true to the frontend to prevent UI hangs,
+      // even if something failed internally during cleanup.
+      console.warn('[logout] Error during session cleanup:', error.message);
+      return {
+        success: true,
+        message: 'Logged out with warnings',
+      };
     }
-    await this.prisma.session.deleteMany({
-      where: { userId, accessToken: token },
-    });
-    return { success: true };
   }
 
   private async blacklistToken(token: string) {
