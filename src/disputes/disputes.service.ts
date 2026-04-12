@@ -491,9 +491,9 @@ export class DisputesService {
       throw new BadRequestException('Dispute is already closed');
     }
 
-    if (dispute.status === DisputeStatus.MUTUAL_RESOLUTION && role !== 'PARTICIPANT') {
+    if (dispute.status === DisputeStatus.MUTUAL_RESOLUTION && role !== 'PARTICIPANT' && role !== UserRole.ADMIN) {
       throw new BadRequestException(
-        'This dispute is still in the Mutual Resolution phase. Admins can only resolve cases once they have been escalated to Phase 2 (Expert Review).',
+        'This dispute is still in the Mutual Resolution phase. Participants must wait or escalate, but Admins can choose to intervene if necessary.',
       );
     }
 
