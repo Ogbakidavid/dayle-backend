@@ -132,7 +132,7 @@ export class DisputesService {
     }
 
     return await prisma.$transaction(async (tx) => {
-      await tx.dispute.update({
+      const result = await tx.dispute.update({
         where: { id },
         data: { status: DisputeStatus.UNDER_REVIEW as any },
       });
@@ -183,7 +183,7 @@ export class DisputesService {
         );
       }
 
-      return dispute;
+      return result;
     });
   }
 

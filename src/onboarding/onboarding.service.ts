@@ -548,14 +548,21 @@ export class OnboardingService {
 
         // 2. [PARTNA PHONE KYC - KENYA]
         let phoneRes: any = null;
-        try {
-          const sanitizedPhone = phoneToUse.replace('+254', '0');
-          phoneRes = await this.partnaService.initiatePhoneVerification({
-            country: 'KE',
-            accountName: finalAccountName,
-            phoneNumber: sanitizedPhone,
-            mobileNetwork: 'Safaricom', // Default for Kenya
-          });
+      try {
+        // Robust sanitization for Kenya phone numbers
+        // Handles: +2547..., +25407..., 07..., 7...
+        let sanitizedPhone = phoneToUse.replace('+254', '').replace(/\s+/g, '').trim();
+        if (sanitizedPhone.startsWith('0')) {
+          sanitizedPhone = sanitizedPhone.substring(1); // Strip leading zero for Partna's 9-digit format (7xxxxxxxx)
+        }
+        const finalPhoneForPartna = '0' + sanitizedPhone;
+
+        phoneRes = await this.partnaService.initiatePhoneVerification({
+          country: 'KE',
+          accountName: finalAccountName,
+          phoneNumber: finalPhoneForPartna,
+          mobileNetwork: 'Safaricom', // Default for Kenya
+        });
         } catch (phoneError: any) {
           if (phoneError.message?.toLowerCase().includes('already verified')) {
             this.logger.log(`[PARTNA KE PHONE] Phone already verified for ${finalAccountName}. Skipping to account creation.`);

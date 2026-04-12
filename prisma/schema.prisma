@@ -186,6 +186,7 @@ model Vault {
   localSettlementFee     Float?
   localProcessingFee     Float?
   localFreelancerReceives Float?
+  requestedChanges      String?
 
   @@index([clientId])
   @@index([freelancerId])

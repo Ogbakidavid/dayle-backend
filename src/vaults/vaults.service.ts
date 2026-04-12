@@ -637,6 +637,7 @@ export class VaultsService {
         partnaRateKey: rateKey,
         partnaDepositFee: typeof rampData.feeInFromCurrency === 'number' ? rampData.feeInFromCurrency : null,
         localAmount: fromAmount,
+        requestedChanges: null, // Clear any previous requested changes instructions when re-funding/transitioning
       },
     });
 
@@ -686,11 +687,11 @@ export class VaultsService {
       },
       feeBreakdown: {
         dayleFeePercent: 0.5,
-        dayleFeeLocal: fromAmount ? Number((fromAmount * 0.005 / 1.005).toFixed(2)) : null,  // Extract Dayle's 0.5% from gross
-        partnaFeeLocal: rampData.feeInFromCurrency ?? null,  // Direct from Partna
+        dayleFeeLocal: fromAmount ? Number((fromAmount * 0.005 / 1.005).toFixed(2)) : null,
+        partnaFeeLocal: rampData.feeInFromCurrency ?? null,
         currency: currency,
-        totalLocal: fromAmount,  // What user actually sends
-        vaultAmountLocal: fromAmount ? Number((fromAmount / 1.005).toFixed(2)) : null,  // Net amount before Dayle fee
+        totalLocal: fromAmount, // This is the gross amount the user sends
+        vaultAmountLocal: fromAmount ? Number((fromAmount - (fromAmount * 0.005 / 1.005) - (rampData.feeInFromCurrency ?? 0)).toFixed(2)) : null,
       },
       partnaFee: rampData.feeInFromCurrency,
     };
@@ -1374,7 +1375,10 @@ export class VaultsService {
 
     const updatedVault = await this.prisma.vault.update({
       where: { id },
-      data: { status: dto.status as any },
+      data: { 
+        status: dto.status as any,
+        requestedChanges: dto.status === VaultStatus.CHANGES_REQUESTED ? dto.reason : undefined,
+      },
     });
 
     if (dto.status === VaultStatus.CHANGES_REQUESTED && updatedVault.freelancerId) {
