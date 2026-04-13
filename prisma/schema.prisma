@@ -510,6 +510,7 @@ enum EvidenceType {
   DISPUTE_NOTE
   DISPUTE_EVIDENCE
   DISPUTE_DECISION
+  DISPUTE_EVENT
 }
 
 enum RefundRequestStatus {

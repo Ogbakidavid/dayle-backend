@@ -641,10 +641,20 @@ export class DisputesService {
           },
         });
 
+        // Update local amounts to reflect the split for accurate UI rendering
+        const safeLocalAmount = dispute.vault.localAmount || 0;
+        const vaultAmountNum = Number(ethers.formatUnits(vaultAmountBigInt, decimals));
+        const freelancerAmountNum = Number(ethers.formatUnits(freelancerAmountBigInt, decimals));
+        const splitRatio = vaultAmountNum > 0 ? freelancerAmountNum / vaultAmountNum : 0;
+        const newLocalFreelancerReceives = safeLocalAmount * splitRatio;
+
         // Mark vault as released as it is fully processed
         await tx.vault.update({
           where: { id: dispute.vaultId },
-          data: { status: VaultStatus.RELEASED as any },
+          data: { 
+            status: VaultStatus.RELEASED as any,
+            ...(safeLocalAmount > 0 && { localFreelancerReceives: newLocalFreelancerReceives }),
+          },
         });
 
         // TRIGGER ON-CHAIN SETTLE

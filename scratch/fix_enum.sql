@@ -1,0 +1,1 @@
+ALTER TYPE "EvidenceType" ADD VALUE 'DISPUTE_EVENT';

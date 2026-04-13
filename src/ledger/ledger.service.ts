@@ -92,14 +92,36 @@ export class LedgerService {
       return sum;
     }, BigInt(0));
 
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { country: true } });
+    const currency = user?.country === 'KE' ? 'KES' : 'NGN';
+    let rate = 1;
+    try {
+      const rateResult = await this.ratesService.getDisplayRate(currency, 1);
+      rate = rateResult.rate;
+    } catch (err) {
+      this.ratesService['logger']?.warn(`Failed to fetch rate for ${currency} in getBalance, using 1:1 fallback`);
+    }
+
+    const localAvailable = Number(ethers.formatUnits(available, 6)) * rate;
+    const localPending = Number(ethers.formatUnits(pending, 6)) * rate;
+
     return {
       available: available.toString(),
       pending: pending.toString(),
       total: (available + pending).toString(),
-      // Use 18 decimals for internal NGN/USD conversions unless specific token specified
+      currency,
+      rate,
+      // Internal USD formatting (kept but hidden from main UI logic)
       formattedAvailable: ethers.formatUnits(available, 6),
       formattedPending: ethers.formatUnits(pending, 6),
       formattedTotal: ethers.formatUnits(available + pending, 6),
+      // Primary Local Formatting for UI
+      localAvailable: localAvailable.toFixed(2),
+      localPending: localPending.toFixed(2),
+      localTotal: (localAvailable + localPending).toFixed(2),
+      formattedLocalAvailable: `${localAvailable.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      formattedLocalPending: `${localPending.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      formattedLocalTotal: `${(localAvailable + localPending).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
     };
   }
 
@@ -224,9 +246,9 @@ export class LedgerService {
           userId,
           type: LedgerEntryType.FEE,
           amount: -appFeeBigInt, // Deduction for the app fee
-          currency: dto.currency || 'USD',
-          status: TransactionStatus.CONFIRMED, // Fees are confirmed immediately on initiation
-          description: `Service fee for withdrawal ${entry.id}`,
+          currency: 'USD', // Fees recorded in USD internally
+          status: TransactionStatus.CONFIRMED,
+          description: `Withdrawing processing fee for withdrawal ${entry.id}`,
           completedAt: new Date(),
         },
       });
@@ -245,16 +267,18 @@ export class LedgerService {
         customerEmail: user?.email || '',
       });
 
+      const userCurrency = user?.country === 'KE' ? 'KES' : 'NGN';
+
       // Simple response body for current state
       const responseBody = {
         id: entry.id,
         createdAt: entry.createdAt,
         type: 'WITHDRAW',
-        amount: dto.amount.toString(),
-        netAmount: netAmountUSD.toString(),
+        amount: dto.amount.toString(), // Local amount
         netAmountLocal: netAmountLocal,
-        totalFees: (totalFeesUSD * rate).toString(),
-        currency: dto.currency || 'USD',
+        totalFeeLocal: (totalFeesUSD * rate).toString(),
+        totalFeePercent: (APP_FEE_PERCENT + PROVIDER_FEE_PERCENT) * 100,
+        currency: dto.currency || userCurrency,
         status: entry.status,
         providerRef,
       };
@@ -275,7 +299,7 @@ export class LedgerService {
       await this.notificationsService.createNotification(userId, {
         type: 'payment',
         title: 'Withdrawal Initiated',
-        message: `Your withdrawal of ${dto.amount} ${dto.currency || 'USD'} has been initiated.`,
+        message: `Your withdrawal of ${dto.amount} ${dto.currency || userCurrency} has been initiated.`,
         action: '/settings',
       });
 
@@ -307,21 +331,19 @@ export class LedgerService {
     }
 
     const appFeeUSD = amountUSD * APP_FEE_PERCENT;
-    const amountAfterAppFeeUSD = amountUSD - appFeeUSD;
-
-    const grossLocal = amountAfterAppFeeUSD * rate;
-    const providerFeeLocal = grossLocal * PROVIDER_FEE_PERCENT;
-    const netLocal = grossLocal - providerFeeLocal;
+    const providerFeeUSD = amountUSD * PROVIDER_FEE_PERCENT;
+    const totalFeeUSD = appFeeUSD + providerFeeUSD;
+    const netAmountUSD = amountUSD - totalFeeUSD;
 
     return {
+      totalFeePercent: (APP_FEE_PERCENT + PROVIDER_FEE_PERCENT) * 100,
+      totalFeeLocal: totalFeeUSD * rate,
       dayleFeePercent: APP_FEE_PERCENT * 100,
-      dayleFeeUSD: appFeeUSD,
       dayleFeeLocal: appFeeUSD * rate,
       partnaFeePercent: PROVIDER_FEE_PERCENT * 100,
-      partnaFeeLocal: providerFeeLocal,
-      vaultAmountUSD: amountUSD, // Internally tracked
-      vaultAmountLocal: amount,  // The local amount the user specified
-      netAmountLocal: netLocal,
+      partnaFeeLocal: providerFeeUSD * rate,
+      vaultAmountLocal: amount,
+      netAmountLocal: netAmountUSD * rate,
       currency: targetCurrency,
       rate,
     };
