@@ -30,10 +30,18 @@ export class AdminService {
     const prisma = this.prisma;
     const totalUsers = await prisma.user.count();
     const activeVaults = await prisma.vault.count({
-      where: { status: VaultStatus.FUNDED },
+      where: { status: { in: [VaultStatus.FUNDED, VaultStatus.DISPUTED] } },
     });
     const pendingDisputes = await prisma.dispute.count({
-      where: { status: DisputeStatus.OPEN },
+      where: {
+        status: {
+          in: [
+            DisputeStatus.OPEN,
+            DisputeStatus.UNDER_REVIEW,
+            DisputeStatus.MUTUAL_RESOLUTION,
+          ],
+        },
+      },
     });
     const totalVolume = await prisma.vault.aggregate({
       _sum: { totalAmount: true },

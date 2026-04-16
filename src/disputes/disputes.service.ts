@@ -406,7 +406,11 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Dispute not found');
 
-    if (dispute.status !== DisputeStatus.OPEN) {
+    const alreadyActive =
+      dispute.status === DisputeStatus.UNDER_REVIEW ||
+      dispute.status === DisputeStatus.RESOLVED ||
+      (dispute.status as any) === DisputeStatus.REJECTED;
+    if (alreadyActive) {
       return dispute; // Already investigating or resolved
     }
 
